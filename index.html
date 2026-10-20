@@ -11,7 +11,9 @@
   <link id="apple-touch-icon-link" rel="apple-touch-icon" href="" />
   <link id="pwa-manifest-link" rel="manifest" href="" />
 
-  <!-- Tailwind CSS CDN -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
   <script src="https://cdn.tailwindcss.com"></script>
 
   <style>
@@ -25,7 +27,6 @@
     @keyframes bounceSlow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
     .animate-bounce-slow { animation: bounceSlow 1.8s infinite ease-in-out; }
     
-    /* Animación Acelerada por Hardware a 120Hz para el Banner */
     @keyframes marqueeText { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-50%, 0, 0); } }
     .animate-marquee {
       display: inline-block; white-space: nowrap;
@@ -33,16 +34,15 @@
       will-change: transform;
       backface-visibility: hidden;
       perspective: 1000px;
+      transform: translateZ(0);
     }
 
-    /* Efecto Neón Rojo Parpadeante para Bajo Stock */
     @keyframes neonPulseAlert {
       0%, 100% { box-shadow: 0 0 6px #e11d48, 0 0 14px #e11d48; background: linear-gradient(135deg, #ffe4e6, #fecdd3); color: #9f1239; border-color: #f43f5e; }
       50% { box-shadow: 0 0 2px #e11d48; background: #18181b; color: #fb7185; border-color: #e11d48; }
     }
     .neon-alert { animation: neonPulseAlert 1.3s infinite ease-in-out; font-weight: 900; }
 
-    /* Estilos de Impresión para Ticket Térmico 58mm/80mm y Corte Z */
     @media print {
       body * { visibility: hidden !important; }
       #printable-area, #printable-area * { visibility: visible !important; }
@@ -132,7 +132,51 @@
     ];
 
     function loadStored(key, fallback) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
-    function saveStored(key, data) { try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} }
+    
+    function saveStored(key, data) { 
+      try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} 
+      // Sincronización Firebase
+      if (window.dbRef) {
+        window.dbRef.child(key).set(data).catch(e => console.error("Firebase sync error:", e));
+      }
+    }
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDmoBjH3dbXNIIlu9F0KbugylDk58lzomw",
+      authDomain: "rb-boutique-37a67.firebaseapp.com",
+      databaseURL: "https://rb-boutique-37a67-default-rtdb.firebaseio.com",
+      projectId: "rb-boutique-37a67",
+      storageBucket: "rb-boutique-37a67.firebasestorage.app",
+      messagingSenderId: "255730748931",
+      appId: "1:255730748931:web:8ebbabf8b9309b3ed94836"
+    };
+
+    try {
+      if (!firebase.apps.length && firebaseConfig.apiKey) {
+        firebase.initializeApp(firebaseConfig);
+        window.dbRef = firebase.database().ref('rb_boutique_data');
+        
+        // Escucha en tiempo real
+        window.dbRef.on('value', (snapshot) => {
+          const cloudData = snapshot.val();
+          if (cloudData) {
+            if (cloudData.rb_boutique_products) state.products = cloudData.rb_boutique_products;
+            if (cloudData.rb_boutique_sales) state.salesHistory = cloudData.rb_boutique_sales;
+            if (cloudData.rb_boutique_vip_clients) state.vipClients = cloudData.rb_boutique_vip_clients;
+            if (cloudData.rb_boutique_petty_cash) state.pettyCash = cloudData.rb_boutique_petty_cash;
+            if (cloudData.rb_boutique_categories) state.visualCategories = cloudData.rb_boutique_categories;
+            if (cloudData.rb_boutique_tickets) state.supportTickets = cloudData.rb_boutique_tickets;
+            if (cloudData.rb_boutique_config) state.storeConfig = cloudData.rb_boutique_config;
+            renderApp();
+          } else {
+            // Inicializar nube si está vacía
+            if (state.products.length > 0) saveStored('rb_boutique_products', state.products);
+            if (state.visualCategories.length > 0) saveStored('rb_boutique_categories', state.visualCategories);
+            if (state.storeConfig) saveStored('rb_boutique_config', state.storeConfig);
+          }
+        });
+      }
+    } catch (error) { console.error("Firebase Init Error:", error); }
 
     let initialVisits = loadStored('rb_boutique_visits', 0);
     initialVisits += 1; saveStored('rb_boutique_visits', initialVisits);
@@ -160,7 +204,7 @@
       supportTickets: loadStored('rb_boutique_tickets', []),
       visitorCount: initialVisits,
 
-      /* Gestor de Caja Chica (Fondo Inicial + Gastos/Retiros del Día) */
+      /* Gestor de Caja Chica */
       pettyCash: loadStored('rb_boutique_petty_cash', {
         openingBalance: 500,
         expenses: []
@@ -187,7 +231,6 @@
       newProd: { id: '', name: '', sku: '', category: 'Vestidos', subcategory: '', department: 'Mujer', price: '', originalPrice: '', cost: '', image: '', description: '', colorName: 'Negro', colorHex: '#18181b', adultSizes: { XS: 2, S: 4, M: 4, L: 2, XL: 1 }, kidsSizes: { '4': 2, '6': 4, '8': 4, '10': 2, '12': 2 }, shoeSizes: { '22': 1, '23': 3, '24': 4, '25': 4, '26': 3, '27': 2, '28': 1 }, unitallaStock: 10 }
     };
 
-    /* Asegurar que la sección Paca y sus subcategorías estén presentes aunque haya datos previos en localStorage */
     (function ensurePacaCategoryExists() {
       const pacaIdx = state.visualCategories.findIndex(c => c.id.toLowerCase() === 'paca');
       if (pacaIdx === -1) {
@@ -199,21 +242,14 @@
           subcategories: [...DEFAULT_PACA_SUBCATEGORIES]
         });
         saveStored('rb_boutique_categories', state.visualCategories);
-      } else if (!Array.isArray(state.visualCategories[pacaIdx].subcategories) || state.visualCategories[pacaIdx].subcategories.length === 0) {
-        state.visualCategories[pacaIdx].subcategories = [...DEFAULT_PACA_SUBCATEGORIES];
-        saveStored('rb_boutique_categories', state.visualCategories);
       }
     })();
 
     function getCategorySubcategories(categoryId) {
       if (!categoryId || categoryId === 'Todo') return [];
       const found = state.visualCategories.find(c => c.id.toLowerCase() === String(categoryId).toLowerCase());
-      if (found && Array.isArray(found.subcategories) && found.subcategories.length > 0) {
-        return found.subcategories;
-      }
-      if (String(categoryId).toLowerCase() === 'paca') {
-        return DEFAULT_PACA_SUBCATEGORIES;
-      }
+      if (found && Array.isArray(found.subcategories) && found.subcategories.length > 0) return found.subcategories;
+      if (String(categoryId).toLowerCase() === 'paca') return DEFAULT_PACA_SUBCATEGORIES;
       return [];
     }
 
@@ -245,9 +281,7 @@
         document.execCommand('copy');
         document.body.removeChild(ta);
         showToast(msg);
-      } catch (e) {
-        showToast(msg);
-      }
+      } catch (e) { showToast(msg); }
     };
 
     function formatSocialUrl(raw, platform) {
@@ -348,7 +382,6 @@
       return { rawMerchandise, vipDiscount, extraRewardDiscount, extraRewardLabel, netMerchandise, isHomeDelivery, shippingFee, requiredAdvance50, grandTotal };
     }
 
-    /* Cálculo Quirúrgico de Caja POS con Comisión Automática del 5% en Terminal */
     function getPosCalculations() {
       const merchandiseTotal = state.posCart.reduce((a, b) => a + b.price * b.qty, 0);
       let basePayment = merchandiseTotal;
@@ -364,20 +397,9 @@
       const cashChange = state.posPaymentMethod === 'efectivo' && Number(state.cashReceived) > finalChargeToday
         ? Number(state.cashReceived) - finalChargeToday
         : 0;
-      return {
-        merchandiseTotal,
-        basePayment,
-        shippingFee,
-        subtotalBeforeFee,
-        isCardTerminal,
-        terminalFee5Pct,
-        finalChargeToday,
-        pendingBalance,
-        cashChange
-      };
+      return { merchandiseTotal, basePayment, shippingFee, subtotalBeforeFee, isCardTerminal, terminalFee5Pct, finalChargeToday, pendingBalance, cashChange };
     }
 
-    /* Cálculo de Caja Chica y Corte Z */
     function getCorteZCalculations() {
       const validSales = state.salesHistory.filter(s => !String(s.status).includes('Devuelto') && !String(s.bankStatus || '').includes('Rechazado'));
       const totalEfectivoVentas = validSales.filter(s => s.method === 'EFECTIVO').reduce((a, b) => a + Number(b.total || 0), 0);
@@ -390,16 +412,7 @@
       const totalExpenses = (state.pettyCash.expenses || []).reduce((a, b) => a + Number(b.amount || 0), 0);
       const exactPhysicalCashInDrawer = openingCash + totalEfectivoVentas - totalExpenses;
 
-      return {
-        totalEfectivoVentas,
-        totalTarjetaVentas,
-        totalComisionesTerminal,
-        totalTransferenciaVentas,
-        totalVentasDia,
-        openingCash,
-        totalExpenses,
-        exactPhysicalCashInDrawer
-      };
+      return { totalEfectivoVentas, totalTarjetaVentas, totalComisionesTerminal, totalTransferenciaVentas, totalVentasDia, openingCash, totalExpenses, exactPhysicalCashInDrawer };
     }
 
     window.submitGoogleRegistration = function (e) {
@@ -421,9 +434,7 @@
       saveStored('rb_boutique_vip_clients', state.vipClients);
       state.currentUser = clientRecord; saveStored('rb_boutique_current_user', clientRecord);
       state.authStatus = 'registered'; state.showAuthRegisterModal = false; state.showGoogleFormInWelcome = false;
-      if (clientRecord.vipGift && !clientRecord.vipGift.notified) {
-        state.showGiftCelebration = true;
-      }
+      if (clientRecord.vipGift && !clientRecord.vipGift.notified) { state.showGiftCelebration = true; }
       showToast(`🎉 ¡Bienvenida ${name}! Tu 10% OFF VIP ya está activo.`);
       renderApp();
     };
@@ -474,14 +485,10 @@
         state.appMode = 'storefront'; state.clientBottomTab = 'home'; showToast('👁️ Volviste a la Tienda Pública'); renderApp(); return; 
       }
       if (action === 'open_petty_expense') {
-        state.pettyCashModal = { mode: 'expense', concept: '', amount: '' };
-        renderApp();
-        return;
+        state.pettyCashModal = { mode: 'expense', concept: '', amount: '' }; renderApp(); return;
       }
       if (action === 'open_petty_opening') {
-        state.pettyCashModal = { mode: 'opening', concept: 'Fondo Inicial de Caja', amount: String(state.pettyCash.openingBalance || 500) };
-        renderApp();
-        return;
+        state.pettyCashModal = { mode: 'opening', concept: 'Fondo Inicial de Caja', amount: String(state.pettyCash.openingBalance || 500) }; renderApp(); return;
       }
       
       const orderIndex = data;
@@ -549,13 +556,7 @@
     window.openVipGiftSender = function(idx) {
       const cl = state.vipClients[idx];
       if (!cl) return;
-      state.vipGiftModal = {
-        idx,
-        clientName: cl.name,
-        message: '¡Regalo VIP Especial por tu preferencia en RB Boutique!',
-        type: 'percent',
-        value: '15'
-      };
+      state.vipGiftModal = { idx, clientName: cl.name, message: '¡Regalo VIP Especial por tu preferencia en RB Boutique!', type: 'percent', value: '15' };
       renderApp();
     };
 
@@ -563,56 +564,36 @@
       if (e) e.preventDefault();
       const g = state.vipGiftModal;
       if (!g) return;
-      state.vipClients[g.idx].vipGift = {
-        type: g.type,
-        value: Number(g.value) || 10,
-        message: g.message || '¡Regalo Especial RB Boutique!',
-        used: false,
-        notified: false
-      };
+      state.vipClients[g.idx].vipGift = { type: g.type, value: Number(g.value) || 10, message: g.message || '¡Regalo Especial RB Boutique!', used: false, notified: false };
       saveStored('rb_boutique_vip_clients', state.vipClients);
       if (state.currentUser && state.currentUser.id === state.vipClients[g.idx].id) {
         state.currentUser = state.vipClients[g.idx];
         saveStored('rb_boutique_current_user', state.currentUser);
       }
-      state.vipGiftModal = null;
-      showToast(`🎁 Regalo sorpresa enviado a ${g.clientName}`);
-      renderApp();
+      state.vipGiftModal = null; showToast(`🎁 Regalo sorpresa enviado a ${g.clientName}`); renderApp();
     };
 
     window.submitNewCategoryModal = function(e) {
       if (e) e.preventDefault();
       const label = (state.newCatForm.label || '').trim();
       if (!label) return;
-      const parsedSubcats = (state.newCatForm.subcategoriesText || '')
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean);
-      const finalSubcats = (label.toLowerCase() === 'paca' && parsedSubcats.length === 0)
-        ? [...DEFAULT_PACA_SUBCATEGORIES]
-        : parsedSubcats;
+      const parsedSubcats = (state.newCatForm.subcategoriesText || '').split(',').map(s => s.trim()).filter(Boolean);
+      const finalSubcats = (label.toLowerCase() === 'paca' && parsedSubcats.length === 0) ? [...DEFAULT_PACA_SUBCATEGORIES] : parsedSubcats;
 
       const existingIdx = state.visualCategories.findIndex(c => c.id.toLowerCase() === label.toLowerCase());
       if (existingIdx >= 0) {
         state.visualCategories[existingIdx].badge = state.newCatForm.badge || state.visualCategories[existingIdx].badge;
-        if (finalSubcats.length > 0) {
-          state.visualCategories[existingIdx].subcategories = finalSubcats;
-        }
+        if (finalSubcats.length > 0) state.visualCategories[existingIdx].subcategories = finalSubcats;
         saveStored('rb_boutique_categories', state.visualCategories);
-        state.showNewCategoryModal = false;
-        state.newCatForm = { label: '', badge: 'NEW', subcategoriesText: '' };
-        showToast(`✨ Sección "${label}" actualizada con sus subcategorías`);
-        renderApp();
-        return;
+        state.showNewCategoryModal = false; state.newCatForm = { label: '', badge: 'NEW', subcategoriesText: '' };
+        showToast(`✨ Sección "${label}" actualizada con sus subcategorías`); renderApp(); return;
       }
 
       const defaultSvg = `<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>`;
       state.visualCategories.push({ id: label, label, icon: defaultSvg, badge: state.newCatForm.badge || 'NEW', subcategories: finalSubcats });
       saveStored('rb_boutique_categories', state.visualCategories);
-      state.showNewCategoryModal = false;
-      state.newCatForm = { label: '', badge: 'NEW', subcategoriesText: '' };
-      showToast(`✨ Sección "${label}" agregada al catálogo`);
-      renderApp();
+      state.showNewCategoryModal = false; state.newCatForm = { label: '', badge: 'NEW', subcategoriesText: '' };
+      showToast(`✨ Sección "${label}" agregada al catálogo`); renderApp();
     };
 
     window.editProduct = function(prodId) {
@@ -656,9 +637,7 @@
       if (existing) {
         if (existing.qty + 1 > available) { showToast(`Stock máximo alcanzado`, 'error'); return; }
         existing.qty += 1;
-      } else {
-        state.customerCart.push({ cartId, productId: p.id, name: p.name, price: p.price, size: state.modalSize, color: state.modalColor, qty: 1, image: p.image });
-      }
+      } else { state.customerCart.push({ cartId, productId: p.id, name: p.name, price: p.price, size: state.modalSize, color: state.modalColor, qty: 1, image: p.image }); }
       state.selectedProductModal = null; showToast(`🛍️ ¡Agregado a tu bolsa!`); renderApp();
     };
 
@@ -724,56 +703,15 @@
       const typeLabel = state.posDeliveryType === 'domicilio' ? '🛵 Domicilio' : '🏪 Mostrador';
       const payLabel = state.posPaymentStatus === 'anticipo' ? 'Anticipo' : '100% Liquidado';
       const saleObj = {
-        id: folio,
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        customer: state.posCustomerName || 'Cliente Mostrador',
-        channel: 'POS Mostrador',
-        type: `${typeLabel} (${payLabel})`,
-        method: state.posPaymentMethod.toUpperCase(),
-        bankStatus: state.posPaymentMethod === 'efectivo' ? 'En Cajón' : 'Pendiente Banco',
-        status: 'Completado',
-        merchandiseTotal: calc.merchandiseTotal,
-        shippingFee: calc.shippingFee,
-        subtotalBeforeFee: calc.subtotalBeforeFee,
-        terminalFee: calc.terminalFee5Pct,
-        total: calc.finalChargeToday,
-        pendingBalance: calc.pendingBalance,
-        cashChange: calc.cashChange,
-        deliveryAddress: state.posDeliveryAddress,
-        deliveryMapUrl: state.posDeliveryMapUrl,
-        itemsList: [...state.posCart],
-        itemsCount: state.posCart.reduce((a,b)=>a+b.qty,0)
+        id: folio, date: new Date().toLocaleDateString(), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        customer: state.posCustomerName || 'Cliente Mostrador', channel: 'POS Mostrador', type: `${typeLabel} (${payLabel})`,
+        method: state.posPaymentMethod.toUpperCase(), bankStatus: state.posPaymentMethod === 'efectivo' ? 'En Cajón' : 'Pendiente Banco', status: 'Completado',
+        merchandiseTotal: calc.merchandiseTotal, shippingFee: calc.shippingFee, subtotalBeforeFee: calc.subtotalBeforeFee, terminalFee: calc.terminalFee5Pct, total: calc.finalChargeToday, pendingBalance: calc.pendingBalance, cashChange: calc.cashChange, deliveryAddress: state.posDeliveryAddress, deliveryMapUrl: state.posDeliveryMapUrl, itemsList: [...state.posCart], itemsCount: state.posCart.reduce((a,b)=>a+b.qty,0)
       };
 
-      state.salesHistory = [saleObj, ...state.salesHistory];
-      saveStored('rb_boutique_sales', state.salesHistory);
-      state.lastReceipt = saleObj;
-      state.posCart = [];
-      state.cashReceived = '';
-      checkLowStockAlert();
-      showToast(`✅ Venta ${folio} cobrada con éxito`);
-      renderApp();
-    };
-
-    window.restoreBackup = function(event) {
-      const file = event.target.files[0]; if (!file) return;
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        try {
-          const data = JSON.parse(e.target.result);
-          if (data.products) state.products = data.products;
-          if (data.sales) state.salesHistory = data.sales;
-          if (data.vipClients) state.vipClients = data.vipClients;
-          if (data.pettyCash) state.pettyCash = data.pettyCash;
-          saveStored('rb_boutique_products', state.products);
-          saveStored('rb_boutique_sales', state.salesHistory);
-          saveStored('rb_boutique_vip_clients', state.vipClients);
-          saveStored('rb_boutique_petty_cash', state.pettyCash);
-          showToast('✅ Respaldo restaurado con éxito'); renderApp();
-        } catch(err) { showToast('❌ Error al leer el archivo JSON', 'error'); }
-      };
-      reader.readAsText(file);
+      state.salesHistory = [saleObj, ...state.salesHistory]; saveStored('rb_boutique_sales', state.salesHistory);
+      state.lastReceipt = saleObj; state.posCart = []; state.cashReceived = ''; checkLowStockAlert();
+      showToast(`✅ Venta ${folio} cobrada con éxito`); renderApp();
     };
 
     function renderWelcomeAccessScreenHTML() {
@@ -822,7 +760,6 @@
               `}
             </div>
 
-            <!-- Íconos Estratégicos de Redes Sociales en Portada de Inicio -->
             <div class="flex flex-col items-center gap-2">
               <span class="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400">Síguenos en redes oficiales</span>
               <div class="flex items-center justify-center gap-4">
@@ -909,7 +846,6 @@
             </main>
           ` : `
             <main class="max-w-6xl mx-auto px-4 py-4 space-y-5 animate-fade overflow-hidden">
-              <!-- BANNER PRINCIPAL CON MARQUESINA 120HZ ACELERADA POR HARDWARE -->
               <div class="relative rounded-3xl overflow-hidden bg-black text-white min-h-[210px] sm:min-h-[260px] flex items-center justify-center shadow-2xl">
                 <img src="https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1200&q=80" class="absolute inset-0 w-full h-full object-cover opacity-50" />
                 <div class="absolute inset-0 flex flex-col justify-between">
@@ -931,14 +867,12 @@
                 </div>
               </div>
 
-              <!-- BUSCADOR ESTRATÉGICO JUSTO ARRIBA DE COMPRA POR SECCIÓN -->
               <div class="relative w-full">
                 <svg class="w-5 h-5 text-zinc-400 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 <input type="text" value="${state.catalogSearch.replace(/"/g, '&quot;')}" oninput="state.catalogSearch=this.value; renderApp();" placeholder="Buscar vestidos, bolsos, denim, código..." class="w-full pl-11 pr-24 py-3.5 rounded-2xl bg-white border border-zinc-200 text-sm shadow-sm focus:outline-none focus:border-black focus:ring-1 focus:ring-black transition" />
                 <button class="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-xl bg-black text-white text-xs font-bold hover:bg-zinc-800 transition">Buscar</button>
               </div>
 
-              <!-- COMPRA POR SECCIÓN: CONTENEDOR BLINDADO SIN DESBORDAMIENTO DE ÍCONOS -->
               <div class="bg-white rounded-3xl border border-zinc-200/80 p-4 shadow-sm w-full overflow-hidden">
                 <div class="flex items-center justify-between mb-2">
                   <h3 class="text-xs font-black uppercase tracking-wider text-zinc-800">Explorar Secciones</h3>
@@ -961,7 +895,6 @@
                   </div>
                 </div>
 
-                <!-- BARRA DE SUBCATEGORÍAS FLOTANTES ESTILO SHEIN (EJ. PACA: MUJER, HOMBRES, NIÑOS, DEPORTIVO...) -->
                 ${getCategorySubcategories(state.selectedCategory).length > 0 ? `
                   <div class="mt-3.5 pt-3 border-t border-zinc-100 animate-fade">
                     <div class="flex items-center justify-between mb-2">
@@ -984,7 +917,6 @@
                 ` : ''}
               </div>
 
-              <!-- CUADRÍCULA DE PRODUCTOS CON PRECIO ORIGINAL TACHADO Y DESCUENTO -->
               <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-4">
                 ${filteredProducts.map(p => {
                   const totalStock = getTotalStock(p);
@@ -1023,7 +955,6 @@
                 }).join('')}
               </div>
 
-              <!-- REDES SOCIALES OFICIALES EN PIE DE CATÁLOGO -->
               <div class="py-8 mt-6 text-center border-t border-zinc-200 bg-white rounded-3xl p-6 shadow-sm">
                 <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500 mb-4">Síguenos en nuestras redes oficiales</p>
                 <div class="flex justify-center gap-5">
@@ -1225,9 +1156,6 @@
                 </div>
                 <div class="flex flex-wrap gap-2.5">
                   <button onclick="state.newCatForm={label:'', badge:'NEW', subcategoriesText:''}; state.showNewCategoryModal=true; renderApp();" class="px-4 py-2 bg-zinc-800 border border-pink-500/40 text-xs font-black text-pink-300 rounded-xl hover:bg-zinc-700">+ Nueva Categoría / Subcategorías</button>
-                  <button onclick="document.getElementById('import-json').click()" class="px-4 py-2 bg-zinc-800 border border-zinc-700 text-xs font-bold text-white rounded-xl hover:bg-zinc-700">⬆️ Extraer Respaldo</button>
-                  <input type="file" id="import-json" accept=".json" class="hidden" onchange="restoreBackup(event)" />
-                  <button onclick="const d='data:text/json;charset=utf-8,'+encodeURIComponent(JSON.stringify({products:state.products, sales:state.salesHistory, vipClients:state.vipClients, pettyCash:state.pettyCash, categories:state.visualCategories})); const a=document.createElement('a'); a.href=d; a.download='Respaldo_RBBoutique_'+new Date().toLocaleDateString().replace(/\\//g,'-')+'.json'; a.click();" class="px-4 py-2 bg-zinc-800 border border-zinc-700 text-xs font-bold text-white rounded-xl hover:bg-zinc-700">⬇️ Respaldar Datos (.JSON)</button>
                   <button onclick="state.isEditingProduct=false; state.newProd={id:'', name:'', sku:'BTQ-'+Math.floor(200+Math.random()*700), category:state.inventorySectionFilter!=='Todo'?state.inventorySectionFilter:'Vestidos', subcategory:getCategorySubcategories(state.inventorySectionFilter)[0]||'', department:'Mujer', price:'', originalPrice:'', cost:'', image:'', description:'', colorName:'Negro', colorHex:'#18181b', adultSizes:{XS:2,S:4,M:4,L:2,XL:1}, kidsSizes:{'4':2,'6':4,'8':4,'10':2,'12':2}, shoeSizes:{'22':1,'23':3,'24':4,'25':4,'26':3,'27':2,'28':1}, unitallaStock:10}; state.showNewProductModal=true; renderApp();" class="px-5 py-2 bg-pink-600 hover:bg-pink-500 text-white text-xs font-black rounded-xl shadow-lg flex items-center gap-1"><span class="text-base leading-none">+</span> Nueva Prenda</button>
                 </div>
               </div>
@@ -1302,12 +1230,9 @@
             </main>
           ` : `
             <main class="max-w-[1400px] mx-auto px-4 py-6 animate-fade">
-              <!-- CAJA POS EN 2 COLUMNAS: COBRO CON COMISIÓN 5% TERMINAL + CONTROL DE CAJA CHICA Y VENTAS -->
               <div class="grid grid-cols-1 lg:grid-cols-12 gap-7">
                 
-                <!-- COLUMNA IZQUIERDA: ESCÁNER Y TICKET DE COBRO (7 Columnas) -->
                 <div class="lg:col-span-7 space-y-5">
-                  <!-- Buscador Inteligente de Prendas -->
                   <div class="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl shadow-lg relative">
                     <h3 class="font-black text-pink-400 text-xs mb-2.5 uppercase tracking-wider">🔍 Escáner / Buscador Rápido de Prendas</h3>
                     <div class="relative">
@@ -1330,7 +1255,6 @@
                     ` : ''}
                   </div>
 
-                  <!-- Ticket Actual y Configuración Combinable -->
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-5 shadow-lg">
                     <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
                       <h3 class="font-black text-white text-lg flex items-center gap-2"><svg class="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg> Ticket de Cobro en Caja</h3>
@@ -1340,7 +1264,6 @@
                     <div class="space-y-4">
                       <input type="text" value="${state.posCustomerName}" oninput="state.posCustomerName=this.value;" placeholder="Nombre del Cliente (Opcional)" class="w-full p-3 text-sm rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:border-pink-500 outline-none" />
                       
-                      <!-- Modo de Operación Combinable (100% o Anticipo + Mostrador o Domicilio) -->
                       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div>
                           <label class="text-zinc-400 font-bold block mb-1.5 uppercase tracking-wider text-[10px]">1. Modalidad de Pago</label>
@@ -1367,7 +1290,6 @@
                         </div>
                       ` : ''}
 
-                      <!-- Lista de Prendas en el Ticket -->
                       <div class="min-h-[135px] max-h-56 overflow-y-auto border border-zinc-800 rounded-2xl p-2.5 bg-zinc-950 space-y-2">
                         ${state.posCart.length === 0 ? '<div class="h-full flex flex-col items-center justify-center text-zinc-600 py-8"><svg class="w-8 h-8 mb-2 opacity-20" fill="currentColor" viewBox="0 0 24 24"><path d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg><p class="text-xs font-bold">Ticket vacío. Usa el buscador de arriba para agregar prendas.</p></div>' : state.posCart.map(item => `
                           <div class="flex justify-between items-center bg-zinc-900 p-2.5 rounded-xl border border-zinc-800 text-xs text-white">
@@ -1388,7 +1310,6 @@
                         `).join('')}
                       </div>
 
-                      <!-- Selección de Método de Pago con Comisión Automática del 5% en Terminal -->
                       <div>
                         <label class="text-zinc-400 font-bold block mb-1.5 uppercase tracking-wider text-[10px]">3. Forma de Pago del Cliente</label>
                         <div class="grid grid-cols-3 gap-2.5">
@@ -1407,7 +1328,6 @@
                         </div>
                       </div>
 
-                      <!-- Aviso Automático cuando se selecciona Pago con Terminal (5%) -->
                       ${posCalc.isCardTerminal ? `
                         <div class="p-3.5 rounded-2xl bg-sky-950/40 border border-sky-500/40 text-xs flex items-center justify-between animate-fade">
                           <div>
@@ -1448,10 +1368,7 @@
                   </div>
                 </div>
 
-                <!-- COLUMNA DERECHA: GESTOR DE CAJA CHICA + HISTORIAL DE VENTAS Y CORTE Z (5 Columnas) -->
                 <div class="lg:col-span-5 space-y-5">
-                  
-                  <!-- NUEVO MÓDULO RECOMENDADO: GESTOR DE CAJA CHICA Y CONTROL DE EFECTIVO EN CAJÓN -->
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg space-y-3.5">
                     <div class="flex items-center justify-between">
                       <div>
@@ -1497,10 +1414,9 @@
                     ` : ''}
                   </div>
 
-                  <!-- HISTORIAL DE VENTAS REALIZADAS Y CORTE Z -->
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex flex-col">
                     <div class="flex items-center justify-between border-b border-zinc-800 pb-3.5 mb-3.5">
-                      <div><h3 class="font-black text-white text-base">📋 Historial de Ventas del Día</h3><p class="text-[10px] text-zinc-400 mt-0.5">Modificaciones y devoluciones protegidas con PIN 1994</p></div>
+                      <div><h3 class="font-black text-white text-base">📋 Historial de Ventas del Día</h3><p class="text-[10px] text-zinc-400 mt-0.5">Modificaciones protegidas con PIN 1994</p></div>
                       <button onclick="state.showCorteModal=true; renderApp();" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-1.5 transition">🖨️ Corte del Día (PDF)</button>
                     </div>
                     
@@ -1558,11 +1474,7 @@
       let html = '';
 
       if (state.toast) {
-        html += `
-          <div class="fixed top-5 right-5 z-[95] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-zinc-900/95 border-zinc-700 text-white animate-fade no-print">
-            <span class="text-xl">${state.toast.type === 'error' ? '⚠️' : '✅'}</span><span class="text-xs sm:text-sm font-bold">${state.toast.message}</span>
-          </div>
-        `;
+        html += `<div class="fixed top-5 right-5 z-[95] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-zinc-900/95 border-zinc-700 text-white animate-fade no-print"><span class="text-xl">${state.toast.type === 'error' ? '⚠️' : '✅'}</span><span class="text-xs sm:text-sm font-bold">${state.toast.message}</span></div>`;
       }
 
       if (state.confirmModal) {
@@ -1570,46 +1482,23 @@
           <div class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print">
             <div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-sm w-full p-6 text-white text-center space-y-5 animate-fade shadow-2xl">
               <div class="w-14 h-14 rounded-full bg-rose-500/20 text-rose-500 flex items-center justify-center mx-auto"><svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></div>
-              <h3 class="font-black text-lg">Confirmar Acción</h3>
-              <p class="text-xs text-zinc-300 leading-relaxed">${state.confirmModal.message}</p>
-              <div class="flex gap-3 pt-1">
-                <button onclick="state.confirmModal=null; renderApp();" class="flex-1 py-3 rounded-xl bg-zinc-800 text-white font-bold text-xs hover:bg-zinc-700">Cancelar</button>
-                <button onclick="state.confirmModal.onConfirm()" class="flex-1 py-3 rounded-xl bg-rose-600 text-white font-black text-xs hover:bg-rose-500 shadow-lg">Sí, Confirmar</button>
-              </div>
+              <h3 class="font-black text-lg">Confirmar Acción</h3><p class="text-xs text-zinc-300 leading-relaxed">${state.confirmModal.message}</p>
+              <div class="flex gap-3 pt-1"><button onclick="state.confirmModal=null; renderApp();" class="flex-1 py-3 rounded-xl bg-zinc-800 text-white font-bold text-xs hover:bg-zinc-700">Cancelar</button><button onclick="state.confirmModal.onConfirm()" class="flex-1 py-3 rounded-xl bg-rose-600 text-white font-black text-xs hover:bg-rose-500 shadow-lg">Sí, Confirmar</button></div>
             </div>
           </div>
         `;
       }
 
-      /* Modal para Enviar Regalo / Ruleta VIP sin usar prompt() */
       if (state.vipGiftModal) {
         const g = state.vipGiftModal;
         html += `
           <div class="fixed inset-0 z-[95] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print">
             <form onsubmit="submitVipGiftModal(event)" class="bg-zinc-900 border border-pink-500/40 rounded-3xl max-w-sm w-full p-6 text-white space-y-4 animate-fade shadow-2xl">
-              <div class="flex justify-between items-center border-b border-zinc-800 pb-3">
-                <div>
-                  <span class="text-[10px] font-black text-pink-400 uppercase">🎁 Recompensa por Preferencia</span>
-                  <h3 class="font-black text-base">Enviar Regalo a ${g.clientName}</h3>
-                </div>
-                <button type="button" onclick="state.vipGiftModal=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button>
-              </div>
+              <div class="flex justify-between items-center border-b border-zinc-800 pb-3"><div><span class="text-[10px] font-black text-pink-400 uppercase">🎁 Recompensa por Preferencia</span><h3 class="font-black text-base">Enviar Regalo a ${g.clientName}</h3></div><button type="button" onclick="state.vipGiftModal=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button></div>
               <div class="space-y-3 text-xs">
-                <div>
-                  <label class="block text-zinc-400 font-bold mb-1">Tipo de Beneficio</label>
-                  <select onchange="state.vipGiftModal.type=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold">
-                    <option value="percent" ${g.type==='percent'?'selected':''}>Porcentaje de Descuento Extra (%)</option>
-                    <option value="fixed" ${g.type==='fixed'?'selected':''}>Dinero de Regalo en Bolsa ($ MXN)</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-zinc-400 font-bold mb-1">Cantidad del Regalo (Ej. 15 para 15% o 100 para $100)</label>
-                  <input type="number" required value="${g.value}" oninput="state.vipGiftModal.value=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-pink-400 font-black text-base" />
-                </div>
-                <div>
-                  <label class="block text-zinc-400 font-bold mb-1">Mensaje de Celebración al abrir la App</label>
-                  <input type="text" required value="${g.message}" oninput="state.vipGiftModal.message=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
-                </div>
+                <div><label class="block text-zinc-400 font-bold mb-1">Tipo de Beneficio</label><select onchange="state.vipGiftModal.type=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold"><option value="percent" ${g.type==='percent'?'selected':''}>Porcentaje de Descuento Extra (%)</option><option value="fixed" ${g.type==='fixed'?'selected':''}>Dinero de Regalo en Bolsa ($ MXN)</option></select></div>
+                <div><label class="block text-zinc-400 font-bold mb-1">Cantidad del Regalo (Ej. 15 para 15% o 100 para $100)</label><input type="number" required value="${g.value}" oninput="state.vipGiftModal.value=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-pink-400 font-black text-base" /></div>
+                <div><label class="block text-zinc-400 font-bold mb-1">Mensaje de Celebración al abrir la App</label><input type="text" required value="${g.message}" oninput="state.vipGiftModal.message=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" /></div>
               </div>
               <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">🎡 Enviar Regalo VIP Ahora</button>
             </form>
@@ -1617,27 +1506,15 @@
         `;
       }
 
-      /* Modal de Caja Chica (Fondo Inicial o Retiro de Gasto autorizado por PIN 1994) */
       if (state.pettyCashModal) {
         const pm = state.pettyCashModal;
         html += `
           <div class="fixed inset-0 z-[95] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print">
             <form onsubmit="submitPettyCashModal(event)" class="bg-zinc-900 border border-emerald-500/40 rounded-3xl max-w-sm w-full p-6 text-white space-y-4 animate-fade shadow-2xl">
-              <div class="flex justify-between items-center border-b border-zinc-800 pb-3">
-                <h3 class="font-black text-base">${pm.mode === 'opening' ? '💵 Configurar Fondo Inicial de Caja' : '💸 Registrar Gasto / Retiro de Caja'}</h3>
-                <button type="button" onclick="state.pettyCashModal=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button>
-              </div>
+              <div class="flex justify-between items-center border-b border-zinc-800 pb-3"><h3 class="font-black text-base">${pm.mode === 'opening' ? '💵 Configurar Fondo Inicial de Caja' : '💸 Registrar Gasto / Retiro de Caja'}</h3><button type="button" onclick="state.pettyCashModal=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button></div>
               <div class="space-y-3 text-xs">
-                ${pm.mode === 'expense' ? `
-                  <div>
-                    <label class="block text-zinc-400 font-bold mb-1">Concepto del Gasto / Retiro</label>
-                    <input type="text" required value="${pm.concept}" oninput="state.pettyCashModal.concept=this.value;" placeholder="Ej. Pago de paquetería, agua, bolsas..." class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
-                  </div>
-                ` : ''}
-                <div>
-                  <label class="block text-zinc-400 font-bold mb-1">${pm.mode === 'opening' ? 'Monto del Fondo Inicial ($ MXN)' : 'Monto a Retirar ($ MXN)'}</label>
-                  <input type="number" required value="${pm.amount}" oninput="state.pettyCashModal.amount=this.value;" placeholder="Ej. 500" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-emerald-400 font-black text-base" />
-                </div>
+                ${pm.mode === 'expense' ? `<div><label class="block text-zinc-400 font-bold mb-1">Concepto del Gasto / Retiro</label><input type="text" required value="${pm.concept}" oninput="state.pettyCashModal.concept=this.value;" placeholder="Ej. Pago de paquetería, agua, bolsas..." class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" /></div>` : ''}
+                <div><label class="block text-zinc-400 font-bold mb-1">${pm.mode === 'opening' ? 'Monto del Fondo Inicial ($ MXN)' : 'Monto a Retirar ($ MXN)'}</label><input type="number" required value="${pm.amount}" oninput="state.pettyCashModal.amount=this.value;" placeholder="Ej. 500" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-emerald-400 font-black text-base" /></div>
               </div>
               <button type="submit" class="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg">Guardar en Caja Chica</button>
             </form>
@@ -1645,39 +1522,21 @@
         `;
       }
 
-      /* Modal para Agregar Nueva Categoría y Subcategorías (Ej. PACA) */
       if (state.showNewCategoryModal) {
         html += `
           <div class="fixed inset-0 z-[95] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print">
             <form onsubmit="submitNewCategoryModal(event)" class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-md w-full p-6 text-white space-y-4 animate-fade shadow-2xl">
-              <div class="flex justify-between items-center border-b border-zinc-800 pb-3">
-                <div>
-                  <span class="text-[10px] font-black uppercase text-pink-400">Organización del Catálogo</span>
-                  <h3 class="font-black text-base">+ Nueva Categoría y Subcategorías</h3>
-                </div>
-                <button type="button" onclick="state.showNewCategoryModal=false; renderApp();" class="text-zinc-400 hover:text-white">✕</button>
-              </div>
+              <div class="flex justify-between items-center border-b border-zinc-800 pb-3"><div><span class="text-[10px] font-black uppercase text-pink-400">Organización del Catálogo</span><h3 class="font-black text-base">+ Nueva Categoría y Subcategorías</h3></div><button type="button" onclick="state.showNewCategoryModal=false; renderApp();" class="text-zinc-400 hover:text-white">✕</button></div>
               <div class="space-y-3.5 text-xs">
+                <div><label class="block text-zinc-400 font-bold mb-1">Nombre de la Categoría Principal</label><input type="text" required value="${state.newCatForm.label}" oninput="state.newCatForm.label=this.value;" placeholder="Ej. Paca, Perfumes, Lencería..." class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold" /></div>
                 <div>
-                  <label class="block text-zinc-400 font-bold mb-1">Nombre de la Categoría Principal</label>
-                  <input type="text" required value="${state.newCatForm.label}" oninput="state.newCatForm.label=this.value;" placeholder="Ej. Paca, Perfumes, Lencería..." class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold" />
-                </div>
-                <div>
-                  <div class="flex items-center justify-between mb-1">
-                    <label class="text-zinc-400 font-bold">Subcategorías Flotantes (Separadas por coma)</label>
-                    <button type="button" onclick="state.newCatForm.label = state.newCatForm.label || 'Paca'; state.newCatForm.subcategoriesText = 'Mujer, Hombres, Niños, Niñas, Deportivo Mujer, Deportivo Hombre'; renderApp();" class="text-[10px] font-black text-pink-400 hover:underline">⚡ Cargar Ejemplo Paca</button>
-                  </div>
+                  <div class="flex items-center justify-between mb-1"><label class="text-zinc-400 font-bold">Subcategorías Flotantes (Separadas por coma)</label><button type="button" onclick="state.newCatForm.label = state.newCatForm.label || 'Paca'; state.newCatForm.subcategoriesText = 'Mujer, Hombres, Niños, Niñas, Deportivo Mujer, Deportivo Hombre'; renderApp();" class="text-[10px] font-black text-pink-400 hover:underline">⚡ Cargar Ejemplo Paca</button></div>
                   <textarea rows="2" value="${state.newCatForm.subcategoriesText || ''}" oninput="state.newCatForm.subcategoriesText=this.value;" placeholder="Ej: Mujer, Hombres, Niños, Niñas, Deportivo Mujer, Deportivo Hombre" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white focus:border-pink-500 outline-none">${state.newCatForm.subcategoriesText || ''}</textarea>
                   <p class="text-[10px] text-zinc-500 mt-1">Si escribes una categoría que ya existe (como Paca), actualizará su lista de subcategorías.</p>
                 </div>
                 <div>
                   <label class="block text-zinc-400 font-bold mb-1">Etiqueta Superior (Opcional)</label>
-                  <select onchange="state.newCatForm.badge=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold">
-                    <option value="NEW" ${state.newCatForm.badge==='NEW'?'selected':''}>NEW</option>
-                    <option value="HOT" ${state.newCatForm.badge==='HOT'?'selected':''}>HOT</option>
-                    <option value="TOP" ${state.newCatForm.badge==='TOP'?'selected':''}>TOP</option>
-                    <option value="" ${state.newCatForm.badge===''?'selected':''}>Sin etiqueta</option>
-                  </select>
+                  <select onchange="state.newCatForm.badge=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold"><option value="NEW" ${state.newCatForm.badge==='NEW'?'selected':''}>NEW</option><option value="HOT" ${state.newCatForm.badge==='HOT'?'selected':''}>HOT</option><option value="TOP" ${state.newCatForm.badge==='TOP'?'selected':''}>TOP</option><option value="" ${state.newCatForm.badge===''?'selected':''}>Sin etiqueta</option></select>
                 </div>
               </div>
               <button type="submit" class="w-full py-3.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black text-xs shadow-lg">Guardar Categoría y Subcategorías</button>
@@ -1691,10 +1550,7 @@
           <div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print">
             <form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden">
               <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div>
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3"><div class="w-12 h-12 rounded-xl bg-black border-2 border-pink-500 text-white flex items-center justify-center font-black text-xl">RB</div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase tracking-widest">Punto de Venta</span></div></div>
-                <button type="button" onclick="state.showAdminLoginModal=false; state.adminUser=''; state.adminPass=''; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 flex items-center justify-center">✕</button>
-              </div>
+              <div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-xl bg-black border-2 border-pink-500 text-white flex items-center justify-center font-black text-xl">RB</div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase tracking-widest">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; state.adminUser=''; state.adminPass=''; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 flex items-center justify-center">✕</button></div>
               <div class="space-y-4">
                 <div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase tracking-wider">Usuario</label><input type="text" required value="${state.adminUser}" oninput="state.adminUser=this.value;" placeholder="Rebeca22" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white focus:outline-none focus:border-pink-500 transition" /></div>
                 <div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase tracking-wider">Contraseña</label><input type="password" required value="${state.adminPass}" oninput="state.adminPass=this.value;" placeholder="••••••••••" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white focus:outline-none focus:border-pink-500 transition" /></div>
@@ -1751,44 +1607,21 @@
         html += `
           <div class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 no-print">
             <div class="bg-zinc-900 border-2 border-pink-500 text-white rounded-[2rem] max-w-sm w-full p-8 text-center space-y-6 shadow-[0_0_40px_rgba(219,39,119,0.3)] animate-fade relative overflow-hidden">
-              <div class="relative z-10">
-                <div class="text-6xl mb-4 animate-bounce-slow">🎡🎁</div>
-                <h2 class="text-2xl font-black mb-2">¡Sorpresa para ti, ${state.currentUser.name.split(' ')[0]}!</h2>
-                <p class="text-sm text-zinc-300 font-bold mb-4 bg-zinc-950 p-4 rounded-2xl border border-zinc-800">${state.currentUser.vipGift.message}</p>
-                <div class="bg-gradient-to-r from-pink-600 to-rose-500 text-white px-6 py-3 rounded-xl font-black text-xl shadow-lg">Beneficio: ${state.currentUser.vipGift.type === 'percent' ? state.currentUser.vipGift.value + '% OFF EXTRA' : '$' + state.currentUser.vipGift.value + ' MXN DE REGALO'}</div>
-                <p class="text-[10px] text-zinc-400 mt-4 uppercase tracking-wider">Se sumará automáticamente a tu 10% VIP en tu bolsa</p>
-                <button onclick="markGiftAsNotified()" class="w-full py-4 mt-6 rounded-2xl bg-white text-black hover:bg-zinc-100 font-black text-sm shadow-xl transition">Aplicar a mi Cuenta y Comprar</button>
-              </div>
+              <div class="relative z-10"><div class="text-6xl mb-4 animate-bounce-slow">🎡🎁</div><h2 class="text-2xl font-black mb-2">¡Sorpresa para ti, ${state.currentUser.name.split(' ')[0]}!</h2><p class="text-sm text-zinc-300 font-bold mb-4 bg-zinc-950 p-4 rounded-2xl border border-zinc-800">${state.currentUser.vipGift.message}</p><div class="bg-gradient-to-r from-pink-600 to-rose-500 text-white px-6 py-3 rounded-xl font-black text-xl shadow-lg">Beneficio: ${state.currentUser.vipGift.type === 'percent' ? state.currentUser.vipGift.value + '% OFF EXTRA' : '$' + state.currentUser.vipGift.value + ' MXN DE REGALO'}</div><p class="text-[10px] text-zinc-400 mt-4 uppercase tracking-wider">Se sumará automáticamente a tu bolsa</p><button onclick="markGiftAsNotified()" class="w-full py-4 mt-6 rounded-2xl bg-white text-black hover:bg-zinc-100 font-black text-sm shadow-xl transition">Aplicar a mi Cuenta y Comprar</button></div>
             </div>
           </div>
         `;
       }
 
-      /* Modal de Ticket Individual (Formato Térmico Normal + PDF) */
       if (state.lastReceipt) {
         const r = state.lastReceipt;
         html += `
           <div class="fixed inset-0 z-[85] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print">
             <div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-sm w-full p-6 text-white my-8 animate-fade shadow-2xl space-y-4">
-              <div class="flex justify-between items-center border-b border-zinc-800 pb-3">
-                <h3 class="font-black text-base">🧾 Ticket de Venta (${r.id})</h3>
-                <button onclick="state.lastReceipt=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button>
-              </div>
+              <div class="flex justify-between items-center border-b border-zinc-800 pb-3"><h3 class="font-black text-base">🧾 Ticket de Venta (${r.id})</h3><button onclick="state.lastReceipt=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button></div>
               <div id="printable-area" class="bg-white text-black p-5 rounded-2xl font-mono text-xs shadow-inner space-y-2.5">
-                <div class="text-center border-b-2 border-dashed border-black pb-2.5">
-                  <div class="font-black text-base tracking-widest">RB BOUTIQUE</div>
-                  <div class="text-[10px]">Moda y estilo • Ticket Oficial</div>
-                  <div class="text-[10px] mt-1">Folio: <strong>${r.id}</strong> • ${r.time}</div>
-                  <div class="text-[10px]">Cliente: ${r.customer}</div>
-                </div>
-                <div class="space-y-1.5 border-b border-dashed border-black pb-2.5">
-                  ${(r.itemsList || []).map(it => `
-                    <div class="flex justify-between">
-                      <span>${it.qty}x ${it.name.slice(0, 18)} (${it.size})</span>
-                      <span class="font-bold">$${it.price * it.qty}</span>
-                    </div>
-                  `).join('')}
-                </div>
+                <div class="text-center border-b-2 border-dashed border-black pb-2.5"><div class="font-black text-base tracking-widest">RB BOUTIQUE</div><div class="text-[10px]">Moda y estilo • Ticket Oficial</div><div class="text-[10px] mt-1">Folio: <strong>${r.id}</strong> • ${r.time}</div><div class="text-[10px]">Cliente: ${r.customer}</div></div>
+                <div class="space-y-1.5 border-b border-dashed border-black pb-2.5">${(r.itemsList || []).map(it => `<div class="flex justify-between"><span>${it.qty}x ${it.name.slice(0, 18)} (${it.size})</span><span class="font-bold">$${it.price * it.qty}</span></div>`).join('')}</div>
                 <div class="space-y-1 text-[11px]">
                   <div class="flex justify-between"><span>Modalidad:</span><span>${r.type}</span></div>
                   <div class="flex justify-between"><span>Método Pago:</span><span>${r.method}</span></div>
@@ -1799,31 +1632,20 @@
                 </div>
                 <div class="text-center text-[9px] pt-2 border-t border-dashed border-black">¡Gracias por tu preferencia en RB Boutique!</div>
               </div>
-              <div class="grid grid-cols-2 gap-2.5 no-print">
-                <button onclick="window.print()" class="py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-black text-xs rounded-xl">🖨️ Ticket Normal</button>
-                <button onclick="window.print()" class="py-3 bg-pink-600 hover:bg-pink-500 text-white font-black text-xs rounded-xl">📄 Guardar PDF</button>
-              </div>
+              <div class="grid grid-cols-2 gap-2.5 no-print"><button onclick="window.print()" class="py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-black text-xs rounded-xl">🖨️ Ticket Normal</button><button onclick="window.print()" class="py-3 bg-pink-600 hover:bg-pink-500 text-white font-black text-xs rounded-xl">📄 Guardar PDF</button></div>
             </div>
           </div>
         `;
       }
 
-      /* Modal de Corte Z Diario con Cuadre Exacto de Caja Chica y Comisiones */
       if (state.showCorteModal) {
         const c = getCorteZCalculations();
         html += `
           <div class="fixed inset-0 z-[85] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print">
             <div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-md w-full p-6 text-white my-8 animate-fade shadow-2xl">
-              <div class="flex justify-between items-center border-b border-zinc-800 pb-3 mb-4">
-                <h3 class="font-black text-lg flex items-center gap-2">🖨️ Corte del Día y Resumen PDF (Corte Z)</h3>
-                <button onclick="state.showCorteModal=false; renderApp();" class="text-zinc-500 hover:text-white">✕</button>
-              </div>
+              <div class="flex justify-between items-center border-b border-zinc-800 pb-3 mb-4"><h3 class="font-black text-lg flex items-center gap-2">🖨️ Corte del Día y Resumen PDF (Corte Z)</h3><button onclick="state.showCorteModal=false; renderApp();" class="text-zinc-500 hover:text-white">✕</button></div>
               <div id="printable-area" class="bg-white text-black p-6 rounded-2xl font-mono text-xs shadow-inner space-y-3">
-                <div class="text-center border-b-2 border-dashed border-black pb-3 font-bold">
-                  <span class="text-base font-black">RB BOUTIQUE</span><br/>
-                  RESUMEN Y CORTE DEL DÍA (Z)<br/>
-                  <span class="text-[10px] font-normal">${new Date().toLocaleDateString()} • ${new Date().toLocaleTimeString()}</span>
-                </div>
+                <div class="text-center border-b-2 border-dashed border-black pb-3 font-bold"><span class="text-base font-black">RB BOUTIQUE</span><br/>RESUMEN Y CORTE DEL DÍA (Z)<br/><span class="text-[10px] font-normal">${new Date().toLocaleDateString()} • ${new Date().toLocaleTimeString()}</span></div>
                 <div class="space-y-1.5 border-b border-dashed border-black pb-3">
                   <div class="font-black text-[11px] uppercase mb-1">1. Desglose de Ventas Cobradas:</div>
                   <div class="flex justify-between"><span>Ventas en Efectivo:</span> <span class="font-bold">$${c.totalEfectivoVentas} MXN</span></div>
@@ -1853,29 +1675,16 @@
         html += `
           <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 no-print">
             <div class="bg-white text-zinc-900 rounded-[2rem] max-w-lg w-full overflow-hidden shadow-2xl animate-fade flex flex-col max-h-[90vh]">
-              <div class="relative h-72 sm:h-80 bg-zinc-100 shrink-0">
-                <img src="${p.image}" class="w-full h-full object-cover" />
-                <button onclick="state.selectedProductModal=null; renderApp();" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center hover:bg-black transition">✕</button>
-              </div>
+              <div class="relative h-72 sm:h-80 bg-zinc-100 shrink-0"><img src="${p.image}" class="w-full h-full object-cover" /><button onclick="state.selectedProductModal=null; renderApp();" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center hover:bg-black transition">✕</button></div>
               <div class="p-6 flex-1 overflow-y-auto space-y-5">
                 <div>
                   <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">${p.department} • ${p.category}${p.subcategory ? ' • ' + p.subcategory : ''}</span><span class="text-[10px] font-mono text-zinc-400">${p.sku}</span></div>
-                  <h3 class="text-xl font-black text-zinc-900 leading-tight">${p.name}</h3>
-                  <p class="text-xs text-zinc-600 mt-1.5 leading-relaxed">${p.description}</p>
-                  <div class="flex items-baseline gap-3 mt-3">
-                    <span class="text-3xl font-black text-pink-600">$${p.price} <span class="text-sm font-normal text-zinc-500">MXN</span></span>
-                    ${hasDiscount ? `<span class="text-lg text-zinc-400 line-through font-bold">$${p.originalPrice}</span>` : ''}
-                  </div>
+                  <h3 class="text-xl font-black text-zinc-900 leading-tight">${p.name}</h3><p class="text-xs text-zinc-600 mt-1.5 leading-relaxed">${p.description}</p>
+                  <div class="flex items-baseline gap-3 mt-3"><span class="text-3xl font-black text-pink-600">$${p.price} <span class="text-sm font-normal text-zinc-500">MXN</span></span>${hasDiscount ? `<span class="text-lg text-zinc-400 line-through font-bold">$${p.originalPrice}</span>` : ''}</div>
                 </div>
                 <div>
                   <label class="text-xs font-black text-zinc-800 uppercase tracking-wider block mb-2">Selecciona tu Talla</label>
-                  <div class="flex flex-wrap gap-2.5">
-                    ${Object.entries(p.sizes).map(([sz, qty]) => `
-                      <button ${qty === 0 ? 'disabled' : ''} onclick="state.modalSize='${sz}'; renderApp();" class="px-5 py-2.5 rounded-xl text-sm font-black border-2 transition ${qty === 0 ? 'border-zinc-200 bg-zinc-50 text-zinc-300 line-through' : state.modalSize === sz ? 'border-black bg-black text-white shadow-md transform scale-105' : 'border-zinc-200 bg-white text-zinc-800 hover:border-black'}">
-                        ${sz} <span class="text-[10px] font-bold opacity-70 block mt-0.5">${qty} disp.</span>
-                      </button>
-                    `).join('')}
-                  </div>
+                  <div class="flex flex-wrap gap-2.5">${Object.entries(p.sizes).map(([sz, qty]) => `<button ${qty === 0 ? 'disabled' : ''} onclick="state.modalSize='${sz}'; renderApp();" class="px-5 py-2.5 rounded-xl text-sm font-black border-2 transition ${qty === 0 ? 'border-zinc-200 bg-zinc-50 text-zinc-300 line-through' : state.modalSize === sz ? 'border-black bg-black text-white shadow-md transform scale-105' : 'border-zinc-200 bg-white text-zinc-800 hover:border-black'}">${sz} <span class="text-[10px] font-bold opacity-70 block mt-0.5">${qty} disp.</span></button>`).join('')}</div>
                 </div>
                 <div class="pt-2"><button onclick="addToCustomerBag()" class="w-full py-4 rounded-2xl bg-black hover:bg-pink-600 text-white font-black text-base shadow-xl transition flex items-center justify-center gap-2">🛍️ Agregar a mi Bolsa</button></div>
               </div>
@@ -1889,61 +1698,24 @@
         html += `
           <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print">
             <div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade">
-              <div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0">
-                <div class="flex items-center gap-2"><span class="text-xl">🛍️</span><h3 class="font-black text-lg">Mi Bolsa RB Boutique</h3></div>
-                <button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200 transition">✕</button>
-              </div>
-              
+              <div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><span class="text-xl">🛍️</span><h3 class="font-black text-lg">Mi Bolsa RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200 transition">✕</button></div>
               <div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">
                 ${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu bolsa está vacía.</p></div>` : `
                   <div class="space-y-3">
                     ${state.customerCart.map(item => `
-                      <div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm">
-                        <img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" />
-                        <div class="flex-1 flex flex-col justify-between py-0.5">
-                          <div>
-                            <h4 class="text-xs font-bold text-zinc-900 line-clamp-2 leading-snug">${item.name}</h4>
-                            <span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span>
-                          </div>
-                          <div class="flex items-center justify-between mt-2">
-                            <span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span>
-                            <div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5">
-                              <button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button>
-                              <span class="text-xs font-black w-4 text-center">${item.qty}</span>
-                              <button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo disponible', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      <div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2 leading-snug">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo disponible', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>
                     `).join('')}
                   </div>
-                  
                   <div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3">
                     <label class="block font-black text-sm text-zinc-900">Método de Entrega</label>
-                    <select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm text-zinc-800 focus:outline-none focus:border-black">
-                      <option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique (Apartado)</option>
-                      <option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option>
-                    </select>
-                    ${state.customerDeliveryType === 'delivery' ? `
-                      <div class="space-y-2 animate-fade pt-1">
-                        <input type="text" placeholder="Escribe tu calle, número, colonia y referencias..." value="${state.customerDeliveryAddress}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm focus:border-black outline-none" />
-                        <input type="url" placeholder="Pega tu link de ubicación de Google Maps (Opcional)" value="${state.customerDeliveryMapUrl}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm focus:border-sky-500 outline-none text-sky-600" />
-                        <p class="text-[10px] text-zinc-500 bg-sky-50 p-2.5 rounded-lg border border-sky-100 font-bold">*Para envíos a domicilio se requiere el 50% de anticipo + envío ($${calc.requiredAdvance50} MXN).</p>
-                      </div>
-                    ` : ''}
+                    <select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm text-zinc-800 focus:outline-none focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique (Apartado)</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>
+                    ${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Escribe tu calle, número, colonia y referencias..." value="${state.customerDeliveryAddress}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm focus:border-black outline-none" /><input type="url" placeholder="Pega tu link de ubicación de Google Maps (Opcional)" value="${state.customerDeliveryMapUrl}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm focus:border-sky-500 outline-none text-sky-600" /><p class="text-[10px] text-zinc-500 bg-sky-50 p-2.5 rounded-lg border border-sky-100 font-bold">*Para envíos a domicilio se requiere el 50% de anticipo + envío ($${calc.requiredAdvance50} MXN).</p></div>` : ''}
                   </div>
                 `}
               </div>
-
               ${state.customerCart.length > 0 ? `
                 <div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0">
-                  <div class="space-y-1.5 text-sm mb-4">
-                    <div class="flex justify-between text-zinc-600"><span>Subtotal Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>
-                    ${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg"><span>✓ Beneficio 10% OFF VIP:</span><span>-$${calc.vipDiscount} MXN</span></div>` : ''}
-                    ${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold bg-pink-50 px-2.5 py-1 rounded-lg"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount} MXN</span></div>` : ''}
-                    ${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío a Domicilio:</span><span>+$${calc.shippingFee} MXN</span></div>` : ''}
-                    <div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2.5 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div>
-                  </div>
+                  <div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Subtotal Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg"><span>✓ Beneficio 10% OFF VIP:</span><span>-$${calc.vipDiscount} MXN</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold bg-pink-50 px-2.5 py-1 rounded-lg"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount} MXN</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío a Domicilio:</span><span>+$${calc.shippingFee} MXN</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2.5 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div>
                   <button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black hover:bg-pink-600 text-white font-black text-sm shadow-xl transition">${calc.isHomeDelivery ? `Apartar con 50% ($${calc.requiredAdvance50} MXN) y Enviar` : 'Confirmar Pedido y Ver Datos de Pago'}</button>
                 </div>
               ` : ''}
@@ -1958,10 +1730,7 @@
           <div class="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 no-print">
             <div class="bg-zinc-900 border border-emerald-500/40 rounded-3xl max-w-md w-full p-6 space-y-5 text-white animate-fade shadow-2xl relative overflow-hidden">
               <div class="relative z-10 space-y-4">
-                <div class="flex items-center gap-3">
-                  <div class="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">✓</div>
-                  <div><span class="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Pedido Apartado en Sistema</span><h4 class="font-black text-lg leading-tight">Folio: ${w.folio}</h4></div>
-                </div>
+                <div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">✓</div><div><span class="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Pedido Apartado en Sistema</span><h4 class="font-black text-lg leading-tight">Folio: ${w.folio}</h4></div></div>
                 <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-300 font-mono space-y-3">
                   <p class="font-sans">Realiza tu transferencia a la cuenta oficial de <strong>RB Boutique</strong> y envíanos tu comprobante:</p>
                   <div class="bg-zinc-900 p-3.5 rounded-xl border border-zinc-700 space-y-1.5 relative">
@@ -1973,10 +1742,7 @@
                   </div>
                   <div class="bg-zinc-900 px-3.5 py-2.5 rounded-xl border border-emerald-500/30 flex justify-between items-center"><span class="font-sans font-bold">Total a Transferir:</span> <span class="text-lg font-black text-emerald-400">$${w.calc.requiredAdvance50} MXN</span></div>
                 </div>
-                <div class="flex gap-2 pt-1">
-                  <button onclick="state.whatsappCheckoutModal=null; renderApp();" class="w-1/3 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition">Cerrar</button>
-                  <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=Hola%20RB%20Boutique!%20Acabo%20de%20hacer%20el%20pedido%20con%20Folio%20${w.folio}%20por%20$${w.calc.requiredAdvance50}%20MXN.%20Envío%20mi%20comprobante:" target="_blank" class="w-2/3 py-3.5 rounded-xl bg-[#25D366] hover:bg-[#1DA851] text-white font-black text-xs text-center flex items-center justify-center gap-1.5 shadow-lg transition">📲 Enviar Comprobante</a>
-                </div>
+                <div class="flex gap-2 pt-1"><button onclick="state.whatsappCheckoutModal=null; renderApp();" class="w-1/3 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition">Cerrar</button><a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=Hola%20RB%20Boutique!%20Acabo%20de%20hacer%20el%20pedido%20con%20Folio%20${w.folio}%20por%20$${w.calc.requiredAdvance50}%20MXN.%20Envío%20mi%20comprobante:" target="_blank" class="w-2/3 py-3.5 rounded-xl bg-[#25D366] hover:bg-[#1DA851] text-white font-black text-xs text-center flex items-center justify-center gap-1.5 shadow-lg transition">📲 Enviar Comprobante</a></div>
               </div>
             </div>
           </div>
@@ -1990,57 +1756,31 @@
           <div class="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print">
             <form onsubmit="submitNewProduct(event)" class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-lg w-full p-7 space-y-5 text-white my-8 shadow-2xl animate-fade relative overflow-hidden">
               <div class="flex items-center justify-between border-b border-zinc-800 pb-3"><div><span class="text-[9px] font-black uppercase text-pink-400 tracking-wider">Gestión de Catálogo</span><h3 class="font-black text-base">${state.isEditingProduct ? '✏️ Modificar Prenda' : '+ Publicar Nueva Prenda'}</h3></div><button type="button" onclick="state.showNewProductModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400">✕</button></div>
-              
               <div class="space-y-4 text-xs max-h-[70vh] overflow-y-auto pr-2">
                 <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
                   <p class="font-black text-pink-400 text-[10px] uppercase tracking-wider">1. Clasificación y Subcategorías</p>
                   <div class="grid grid-cols-2 gap-3">
                     <div><label class="block mb-1.5 text-zinc-400 font-bold">Departamento (Define Tallas)</label><select onchange="state.newProd.department=this.value; state.newProd.sku=this.value.slice(0,3).toUpperCase()+'-'+Math.floor(200+Math.random()*700); renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${['Mujer', 'Hombres', 'Niñas', 'Niños', 'Tenis', 'Accesorios'].map(d => `<option value="${d}" ${np.department === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
-                    <div><label class="block mb-1.5 text-zinc-400 font-bold">Sección / Categoría</label><select onchange="state.newProd.category=this.value; const subs=getCategorySubcategories(this.value); state.newProd.subcategory=subs[0]||''; if(this.value.toLowerCase()==='paca'){ state.newProd.sku='PAC-'+Math.floor(200+Math.random()*700); } renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${[...new Set(['Vestidos', 'Conjuntos', 'Denim', 'Tops', 'Outerwear', 'Hombres', 'Niñas', 'Niños', 'Tenis', 'Bolsos', 'Joyería', 'Accesorios', 'Paca', ...state.visualCategories.map(c=>c.id)])].filter(c=>c!=='Todo').map(c => `<option value="${c}" ${np.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+                    <div><label class="block mb-1.5 text-zinc-400 font-bold">Sección / Categoría</label><select onchange="state.newProd.category=this.value; const subs=getCategorySubcategories(this.value); state.newProd.subcategory=subs[0]||''; if(this.value.toLowerCase()==='paca'){ state.newProd.sku='PAC-'+Math.floor(200+Math.random()*700); } renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${[...new Set(['Vestidos', 'Conjuntos', 'Denim', 'Bolsos', 'Joyería', 'Paca', ...state.visualCategories.map(c=>c.id)])].filter(c=>c!=='Todo').map(c => `<option value="${c}" ${np.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
                   </div>
-                  ${availableSubcategories.length > 0 ? `
-                    <div class="pt-2 border-t border-zinc-800/80 animate-fade">
-                      <label class="block mb-1.5 text-pink-400 font-black">↳ Subcategoría de ${np.category} (Ej. Mujer, Hombre, Niños, Deportivo)</label>
-                      <select onchange="state.newProd.subcategory=this.value; if(this.value.includes('Niños')){state.newProd.department='Niños';} else if(this.value.includes('Niñas')){state.newProd.department='Niñas';} else if(this.value.includes('Hombre')){state.newProd.department='Hombres';} else if(this.value.includes('Mujer')){state.newProd.department='Mujer';} renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border-2 border-pink-500/50 text-white font-black">
-                        ${availableSubcategories.map(sub => `<option value="${sub}" ${(np.subcategory || availableSubcategories[0]) === sub ? 'selected' : ''}>${sub}</option>`).join('')}
-                      </select>
-                    </div>
-                  ` : ''}
+                  ${availableSubcategories.length > 0 ? `<div class="pt-2 border-t border-zinc-800/80 animate-fade"><label class="block mb-1.5 text-pink-400 font-black">↳ Subcategoría de ${np.category}</label><select onchange="state.newProd.subcategory=this.value; if(this.value.includes('Niños')){state.newProd.department='Niños';} else if(this.value.includes('Niñas')){state.newProd.department='Niñas';} else if(this.value.includes('Hombre')){state.newProd.department='Hombres';} else if(this.value.includes('Mujer')){state.newProd.department='Mujer';} renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border-2 border-pink-500/50 text-white font-black">${availableSubcategories.map(sub => `<option value="${sub}" ${(np.subcategory || availableSubcategories[0]) === sub ? 'selected' : ''}>${sub}</option>`).join('')}</select></div>` : ''}
                 </div>
-
                 <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
                   <p class="font-black text-pink-400 text-[10px] uppercase tracking-wider">2. Datos, Precio Original y Precio con Descuento</p>
-                  <div class="grid grid-cols-3 gap-3">
-                    <div class="col-span-2"><label class="block mb-1.5 text-zinc-400 font-bold">Nombre del Artículo</label><input type="text" required value="${np.name}" oninput="state.newProd.name=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
-                    <div><label class="block mb-1.5 text-zinc-400 font-bold">SKU</label><input type="text" value="${np.sku}" oninput="state.newProd.sku=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div>
-                  </div>
-                  <div class="grid grid-cols-3 gap-3">
-                    <div><label class="block mb-1.5 text-zinc-400 font-bold">Precio Normal (Tachado)</label><input type="number" value="${np.originalPrice}" oninput="state.newProd.originalPrice=this.value;" placeholder="Ej. 850" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
-                    <div><label class="block mb-1.5 text-emerald-400 font-bold">Precio Oferta / Venta</label><input type="number" required value="${np.price}" oninput="state.newProd.price=this.value;" placeholder="Ej. 680" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border-2 border-emerald-500/50 text-emerald-400 font-black" /></div>
-                    <div><label class="block mb-1.5 text-zinc-400 font-bold">Tu Costo ($)</label><input type="number" value="${np.cost}" oninput="state.newProd.cost=this.value;" placeholder="Ej. 290" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-400" /></div>
-                  </div>
+                  <div class="grid grid-cols-3 gap-3"><div class="col-span-2"><label class="block mb-1.5 text-zinc-400 font-bold">Nombre del Artículo</label><input type="text" required value="${np.name}" oninput="state.newProd.name=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div><div><label class="block mb-1.5 text-zinc-400 font-bold">SKU</label><input type="text" value="${np.sku}" oninput="state.newProd.sku=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div></div>
+                  <div class="grid grid-cols-3 gap-3"><div><label class="block mb-1.5 text-zinc-400 font-bold">Precio Normal</label><input type="number" value="${np.originalPrice}" oninput="state.newProd.originalPrice=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div><div><label class="block mb-1.5 text-emerald-400 font-bold">Precio Oferta</label><input type="number" required value="${np.price}" oninput="state.newProd.price=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border-2 border-emerald-500/50 text-emerald-400 font-black" /></div><div><label class="block mb-1.5 text-zinc-400 font-bold">Tu Costo</label><input type="number" value="${np.cost}" oninput="state.newProd.cost=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-400" /></div></div>
                 </div>
-
                 <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
                   <p class="font-black text-pink-400 text-[10px] uppercase tracking-wider">3. Imagen y Descripción</p>
-                  <div><label class="block mb-1.5 text-zinc-400 font-bold">Link de la Fotografía (URL)</label><input type="url" value="${np.image}" oninput="state.newProd.image=this.value;" placeholder="https://..." class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
-                  <div><label class="block mb-1.5 text-zinc-400 font-bold">Descripción breve</label><input type="text" value="${np.description || ''}" oninput="state.newProd.description=this.value;" placeholder="Detalles de tela, corte, estilo..." class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
+                  <div><label class="block mb-1.5 text-zinc-400 font-bold">Link Fotografía (URL)</label><input type="url" value="${np.image}" oninput="state.newProd.image=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
+                  <div><label class="block mb-1.5 text-zinc-400 font-bold">Descripción breve</label><input type="text" value="${np.description || ''}" oninput="state.newProd.description=this.value;" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
                 </div>
-
                 <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
-                  <p class="font-black text-pink-400 text-[10px] uppercase tracking-wider">4. Inventario Físico por Talla</p>
-                  ${np.department === 'Accesorios' ? `
-                    <div><label class="block mb-1.5 text-zinc-400 font-bold">Piezas en UNITALLA</label><input type="number" value="${np.unitallaStock}" oninput="state.newProd.unitallaStock=Number(this.value);" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black" /></div>
-                  ` : np.department === 'Tenis' ? `
-                    <div class="grid grid-cols-4 gap-2">${['22','23','24','25','26','27','28'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">#${sz}</label><input type="number" value="${np.shoeSizes[sz]}" oninput="state.newProd.shoeSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>
-                  ` : np.department === 'Niñas' || np.department === 'Niños' ? `
-                    <div class="grid grid-cols-5 gap-2">${['4','6','8','10','12'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">T-${sz}</label><input type="number" value="${np.kidsSizes[sz]}" oninput="state.newProd.kidsSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>
-                  ` : `
-                    <div class="grid grid-cols-5 gap-2">${['XS','S','M','L','XL'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">${sz}</label><input type="number" value="${np.adultSizes[sz]}" oninput="state.newProd.adultSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>
-                  `}
+                  <p class="font-black text-pink-400 text-[10px] uppercase tracking-wider">4. Inventario por Talla</p>
+                  ${np.department === 'Accesorios' ? `<div><label class="block mb-1.5 text-zinc-400 font-bold">Piezas en UNITALLA</label><input type="number" value="${np.unitallaStock}" oninput="state.newProd.unitallaStock=Number(this.value);" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black" /></div>` : np.department === 'Tenis' ? `<div class="grid grid-cols-4 gap-2">${['22','23','24','25','26','27','28'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">#${sz}</label><input type="number" value="${np.shoeSizes[sz]}" oninput="state.newProd.shoeSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>` : np.department === 'Niñas' || np.department === 'Niños' ? `<div class="grid grid-cols-5 gap-2">${['4','6','8','10','12'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">T-${sz}</label><input type="number" value="${np.kidsSizes[sz]}" oninput="state.newProd.kidsSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>` : `<div class="grid grid-cols-5 gap-2">${['XS','S','M','L','XL'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">${sz}</label><input type="number" value="${np.adultSizes[sz]}" oninput="state.newProd.adultSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>`}
                 </div>
               </div>
-              <button type="submit" class="w-full py-4 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white font-black text-sm shadow-lg transition">${state.isEditingProduct ? 'Guardar Cambios' : 'Publicar en Catálogo y POS'}</button>
+              <button type="submit" class="w-full py-4 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white font-black text-sm shadow-lg transition">${state.isEditingProduct ? 'Guardar Cambios' : 'Publicar en Catálogo'}</button>
             </form>
           </div>
         `;
@@ -2052,13 +1792,7 @@
             <div class="bg-zinc-900 border border-zinc-700 text-white rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-fade">
               <div class="flex justify-between items-center mb-1"><h3 class="font-black text-lg">Únete a RB VIP (10% OFF)</h3><button onclick="state.showAuthRegisterModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div>
               <p class="text-xs text-zinc-400 mb-3">Regístrate para guardar favoritos, hacer pedidos y obtener <strong class="text-pink-400">10% de descuento automático</strong>.</p>
-              <form onsubmit="submitGoogleRegistration(event)" class="space-y-3">
-                <input type="text" required value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre Completo" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white focus:border-pink-500 outline-none" />
-                <input type="email" required value="${state.regForm.email}" oninput="state.regForm.email=this.value;" placeholder="Correo Electrónico" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white focus:border-pink-500 outline-none" />
-                <input type="tel" required value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="WhatsApp (10 dígitos)" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white focus:border-pink-500 outline-none" />
-                <select onchange="state.regForm.source=this.value;" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-zinc-300 focus:border-pink-500 outline-none"><option value="">¿Dónde viste nuestra publicidad? (+Premio)</option><option value="Instagram">📸 Instagram</option><option value="Facebook">📘 Facebook</option><option value="TikTok">🎵 TikTok</option><option value="Recomendación">💬 Recomendación</option></select>
-                <button type="submit" class="w-full py-4 mt-2 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white font-black text-sm shadow-lg transition">Activar mi 10% OFF y Continuar</button>
-              </form>
+              <form onsubmit="submitGoogleRegistration(event)" class="space-y-3"><input type="text" required value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre Completo" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white focus:border-pink-500 outline-none" /><input type="email" required value="${state.regForm.email}" oninput="state.regForm.email=this.value;" placeholder="Correo Electrónico" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white focus:border-pink-500 outline-none" /><input type="tel" required value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="WhatsApp (10 dígitos)" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white focus:border-pink-500 outline-none" /><select onchange="state.regForm.source=this.value;" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-zinc-300 focus:border-pink-500 outline-none"><option value="">¿Dónde viste nuestra publicidad? (+Premio)</option><option value="Instagram">📸 Instagram</option><option value="Facebook">📘 Facebook</option><option value="TikTok">🎵 TikTok</option><option value="Recomendación">💬 Recomendación</option></select><button type="submit" class="w-full py-4 mt-2 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white font-black text-sm shadow-lg transition">Activar mi 10% OFF y Continuar</button></form>
             </div>
           </div>
         `;
@@ -2068,26 +1802,13 @@
         html += `
           <div class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4 no-print">
             <div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-md w-full p-6 space-y-5 text-white shadow-2xl animate-fade">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3"><div class="w-12 h-12 rounded-2xl bg-black border-2 border-pink-500 flex items-center justify-center shadow-lg"><span class="font-black text-base text-white">RB</span></div><div><span class="text-[9px] font-black uppercase text-pink-400 tracking-wider">APP OFICIAL</span><h3 class="font-black text-base">Instalar RB Boutique</h3></div></div>
-                <button onclick="state.showPwaInstallModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button>
-              </div>
-              <div class="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl text-xs text-zinc-300">
-                Instala el acceso directo oficial en tu pantalla de inicio para entrar con un toque y aprovechar tus descuentos VIP.
-              </div>
-              ${state.installGuidePlatform === 'ios' ? `
-                <div class="space-y-3">
-                  <div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">1</div><div class="text-xs"><p class="font-bold">Toca el botón Compartir <span class="bg-zinc-800 text-sky-400 px-1.5 py-0.5 rounded ml-1">⬆️</span></p><p class="text-[10px] text-zinc-500">En la barra inferior de Safari.</p></div></div>
-                  <div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">2</div><div class="text-xs"><p class="font-bold">Selecciona "Agregar a inicio" <span class="bg-zinc-800 px-1.5 py-0.5 rounded ml-1">➕</span></p></div></div>
-                </div>
-              ` : `
-                <button onclick="handleInstallClick()" class="w-full py-4 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white font-black text-sm shadow-lg">📲 Instalar App Ahora</button>
-              `}
+              <div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-2xl bg-black border-2 border-pink-500 flex items-center justify-center shadow-lg"><span class="font-black text-base text-white">RB</span></div><div><span class="text-[9px] font-black uppercase text-pink-400 tracking-wider">APP OFICIAL</span><h3 class="font-black text-base">Instalar RB Boutique</h3></div></div><button onclick="state.showPwaInstallModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div>
+              <div class="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl text-xs text-zinc-300">Instala el acceso directo oficial en tu pantalla de inicio para entrar con un toque y aprovechar tus descuentos VIP.</div>
+              ${state.installGuidePlatform === 'ios' ? `<div class="space-y-3"><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">1</div><div class="text-xs"><p class="font-bold">Toca el botón Compartir <span class="bg-zinc-800 text-sky-400 px-1.5 py-0.5 rounded ml-1">⬆️</span></p><p class="text-[10px] text-zinc-500">En la barra inferior de Safari.</p></div></div><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">2</div><div class="text-xs"><p class="font-bold">Selecciona "Agregar a inicio" <span class="bg-zinc-800 px-1.5 py-0.5 rounded ml-1">➕</span></p></div></div></div>` : `<button onclick="handleInstallClick()" class="w-full py-4 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white font-black text-sm shadow-lg">📲 Instalar App Ahora</button>`}
             </div>
           </div>
         `;
       }
-
       return html;
     }
 
