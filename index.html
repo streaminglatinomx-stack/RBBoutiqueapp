@@ -409,55 +409,97 @@
 
     window.loginWithGoogle = async function() {
       try {
-        if (!window.auth) {
-          state.showGoogleFormInWelcome = true;
+        // En iPhone instalado en Pantalla de Inicio (Standalone), Apple bloquea cookies cruzadas de redirección.
+        // Abrimos directo el acceso rápido VIP sin causar bucle infinito.
+        if (isIOSDevice() && isInStandaloneMode()) {
+          if (state.authStatus === 'welcome') {
+            state.showGoogleFormInWelcome = true;
+          } else {
+            state.showAuthRegisterModal = true;
+          }
+          showToast('✨ Completa o recupera tu acceso VIP directo aquí');
           renderApp();
           return;
         }
+
+        if (!window.auth) {
+          if (state.authStatus === 'welcome') state.showGoogleFormInWelcome = true;
+          else state.showAuthRegisterModal = true;
+          renderApp();
+          return;
+        }
+
         await window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
         const provider = new firebase.auth.GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
 
-        if (isIOSDevice() || isInStandaloneMode()) {
-          await window.auth.signInWithRedirect(provider);
-          return;
-        }
-
+        // Usamos Popup directo (funciona en Android, PC y Safari normal sin perder memoria)
         const result = await window.auth.signInWithPopup(provider);
         if (result && result.user) {
           handleGoogleUserAuthenticated(result.user);
         }
       } catch (err) {
-        console.warn("Auth fallback activado:", err);
-        if (err && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment' || String(err.message || '').includes('initial state') || String(err.message || '').includes('sessionStorage'))) {
-          try {
-            const provider = new firebase.auth.GoogleAuthProvider();
-            await window.auth.signInWithRedirect(provider);
-            return;
-          } catch (redirErr) {
-            state.showGoogleFormInWelcome = true;
-            renderApp();
-          }
-        } else {
+        console.warn("Auth fallback anti-bucle activado:", err);
+        if (state.authStatus === 'welcome') {
           state.showGoogleFormInWelcome = true;
-          showToast('Completa tu registro VIP directo aquí 👇');
-          renderApp();
+        } else {
+          state.showAuthRegisterModal = true;
         }
+        showToast('Completa o recupera tu Cuenta VIP directo aquí 👇');
+        renderApp();
+      }
+    };
+
+    window.quickRecoverVipAccount = function() {
+      const emailInput = (state.regForm.email || '').trim().toLowerCase();
+      const phoneInput = (state.regForm.phone || '').trim().replace(/\D/g, '');
+
+      if (!emailInput && phoneInput.length < 10) {
+        showToast('Escribe tu Correo o tu WhatsApp (10 dígitos) para recuperar tu cuenta', 'error');
+        return;
+      }
+
+      const foundClient = state.vipClients.find(c => {
+        const cEmail = (c.email || '').trim().toLowerCase();
+        const cPhone = (c.phone || '').trim().replace(/\D/g, '');
+        return (emailInput && cEmail === emailInput) || (phoneInput.length >= 10 && cPhone === phoneInput);
+      });
+
+      if (foundClient) {
+        state.currentUser = foundClient;
+        saveStored('rb_boutique_current_user', foundClient);
+        state.authStatus = 'registered';
+        state.showAuthRegisterModal = false;
+        state.showGoogleFormInWelcome = false;
+        showToast(`🎉 ¡Bienvenida de nuevo, ${foundClient.name}!`);
+        if (foundClient.vipGift && !foundClient.vipGift.used && !isGiftExpired(foundClient.vipGift) && !foundClient.vipGift.notified) {
+          state.showGiftCelebration = true;
+        }
+        renderApp();
+      } else {
+        showToast('No encontramos cuenta con ese dato. Escribe tu nombre arriba para crearla.', 'error');
       }
     };
 
     window.submitCompleteRegistration = function(e) {
         if (e) e.preventDefault();
         const { name, email, phone, referralCode } = state.regForm;
-        if (!name || !name.trim()) { showToast('Escribe tu nombre completo', 'error'); return; }
-        if (!email || !email.trim()) { showToast('Escribe tu correo electrónico', 'error'); return; }
-        if (!phone || phone.length < 10) { showToast('El WhatsApp es obligatorio (10 dígitos)', 'error'); return; }
-        
-        let existingClient = state.vipClients.find(c => c.email && c.email.toLowerCase() === email.trim().toLowerCase());
+        const cleanEmail = (email || '').trim().toLowerCase();
+        const cleanPhone = (phone || '').trim().replace(/\D/g, '');
+
+        // Si la clienta ya existe por correo o por teléfono en Firebase, recuperamos su sesión al instante
+        let existingClient = state.vipClients.find(c =>
+          (cleanEmail && c.email && c.email.trim().toLowerCase() === cleanEmail) ||
+          (cleanPhone.length >= 10 && c.phone && c.phone.trim().replace(/\D/g, '') === cleanPhone)
+        );
         if (existingClient) {
           handleGoogleUserAuthenticated({ displayName: existingClient.name, email: existingClient.email });
           return;
         }
+
+        if (!name || !name.trim()) { showToast('Escribe tu nombre completo', 'error'); return; }
+        if (!email || !email.trim()) { showToast('Escribe tu correo electrónico', 'error'); return; }
+        if (!phone || phone.length < 10) { showToast('El WhatsApp es obligatorio (10 dígitos)', 'error'); return; }
 
         const newCode = name.trim().split(' ')[0].toUpperCase() + Math.floor(1000 + Math.random() * 9000);
         
@@ -955,12 +997,13 @@
                 </div>
               ` : `
                 <form onsubmit="submitCompleteRegistration(event)" class="space-y-3.5 animate-fade">
-                  <div class="flex justify-between items-center mb-1"><span class="text-[11px] text-pink-400 font-black uppercase">Completar Perfil VIP</span><button type="button" onclick="state.showGoogleFormInWelcome=false; renderApp();" class="text-[10px] bg-white/10 px-2.5 py-1 rounded-lg text-zinc-300 font-bold">Volver</button></div>
-                  <input type="text" required value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre y Apellido" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
+                  <div class="flex justify-between items-center mb-1"><span class="text-[11px] text-pink-400 font-black uppercase">Activar o Recuperar Cuenta VIP</span><button type="button" onclick="state.showGoogleFormInWelcome=false; renderApp();" class="text-[10px] bg-white/10 px-2.5 py-1 rounded-lg text-zinc-300 font-bold">Volver</button></div>
+                  <input type="text" value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre y Apellido (Si eres nueva)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
                   <input type="email" required value="${state.regForm.email}" oninput="state.regForm.email=this.value;" placeholder="Tu Correo de Google (Gmail)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
-                  <input type="tel" required value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="WhatsApp (10 dígitos obligatorios)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
+                  <input type="tel" value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="WhatsApp (10 dígitos)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
                   <input type="text" value="${state.regForm.referralCode}" oninput="state.regForm.referralCode=this.value;" placeholder="¿Código de invitación de una amiga? (Opcional)" class="w-full px-4 py-3 rounded-xl bg-pink-900/20 border border-pink-500/50 text-sm text-pink-200 uppercase font-mono" />
-                  <button type="submit" class="w-full py-4 mt-2 rounded-2xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm shadow-lg hover:scale-[1.02] transition">Crear Cuenta y Entrar con 10% OFF</button>
+                  <button type="submit" class="w-full py-4 mt-1 rounded-2xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm shadow-lg hover:scale-[1.02] transition">Crear Cuenta y Entrar con 10% OFF</button>
+                  <button type="button" onclick="quickRecoverVipAccount()" class="w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-pink-300 font-bold text-xs transition">🔑 ¿Ya eres VIP? Escribe tu Correo o WhatsApp y toca aquí</button>
                 </form>
               `}
             </div>
@@ -1598,6 +1641,30 @@
       if (state.showPwaInstallModal) {
         html += `
           <div class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4 no-print"><div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-md w-full p-6 space-y-5 text-white shadow-2xl animate-fade"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-2xl bg-black border-2 border-pink-500 flex items-center justify-center shadow-lg"><span class="font-black text-base text-white">RB</span></div><div><span class="text-[9px] font-black uppercase text-pink-400 tracking-wider">APP OFICIAL</span><h3 class="font-black text-base">Instalar RB Boutique</h3></div></div><button onclick="state.showPwaInstallModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl text-xs text-zinc-300">Instala el acceso directo oficial en tu pantalla de inicio para entrar rápido y asegurar tus regalos VIP.</div>${state.installGuidePlatform === 'ios' ? `<div class="space-y-3"><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">1</div><div class="text-xs"><p class="font-bold">Toca el ícono de Compartir <span class="bg-zinc-800 text-sky-400 px-1.5 py-0.5 rounded ml-1">⬆️</span></p><p class="text-[10px] text-zinc-500">En la barra inferior de Safari.</p></div></div><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">2</div><div class="text-xs"><p class="font-bold">Selecciona "Agregar a inicio" <span class="bg-zinc-800 px-1.5 py-0.5 rounded ml-1">➕</span></p></div></div></div>` : `<div class="space-y-3"><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">1</div><div class="text-xs"><p class="font-bold">Toca el Menú de tu navegador <span class="bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded ml-1">⋮</span></p></div></div><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">2</div><div class="text-xs"><p class="font-bold">Selecciona "Instalar aplicación" o "Agregar a inicio"</p></div></div></div>`}</div></div>
+        `;
+      }
+
+      if (state.showAuthRegisterModal) {
+        html += `
+          <div class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 no-print">
+            <div class="bg-zinc-900 border border-pink-500/40 rounded-3xl max-w-sm w-full p-6 space-y-4 text-white shadow-2xl animate-fade">
+              <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div>
+                  <span class="text-[10px] font-black uppercase text-pink-400">Club VIP RB Boutique</span>
+                  <h3 class="font-black text-base">Activa tu 10% OFF Permanente</h3>
+                </div>
+                <button onclick="state.showAuthRegisterModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button>
+              </div>
+              <form onsubmit="submitCompleteRegistration(event)" class="space-y-3 text-xs">
+                <input type="text" value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre y Apellido (Si eres nueva)" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
+                <input type="email" required value="${state.regForm.email}" oninput="state.regForm.email=this.value;" placeholder="Tu Correo de Google (Gmail)" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
+                <input type="tel" value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="WhatsApp (10 dígitos)" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
+                <input type="text" value="${state.regForm.referralCode}" oninput="state.regForm.referralCode=this.value;" placeholder="¿Código de invitación? (Opcional)" class="w-full px-4 py-3 rounded-xl bg-pink-900/20 border border-pink-500/50 text-pink-200 uppercase font-mono" />
+                <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">Crear Cuenta VIP (10% OFF)</button>
+                <button type="button" onclick="quickRecoverVipAccount()" class="w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-pink-300 font-bold text-[11px] border border-zinc-700">🔑 ¿Ya eres VIP? Recuperar con Correo o WhatsApp</button>
+              </form>
+            </div>
+          </div>
         `;
       }
 
