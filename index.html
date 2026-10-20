@@ -219,7 +219,7 @@
             if (cloudData.rb_boutique_petty_cash) state.pettyCash = cloudData.rb_boutique_petty_cash;
             if (cloudData.rb_boutique_categories) state.visualCategories = cloudData.rb_boutique_categories;
             if (cloudData.rb_boutique_tickets) state.supportTickets = cloudData.rb_boutique_tickets;
-            if (cloudData.rb_boutique_config) state.storeConfig = cloudData.rb_boutique_config;
+            if (cloudData.rb_boutique_config) state.storeConfig = { ...state.storeConfig, ...cloudData.rb_boutique_config };
             renderApp();
           } else {
             if (state.products.length > 0) saveStored('rb_boutique_products', state.products);
@@ -233,10 +233,37 @@
     let initialVisits = loadStored('rb_boutique_visits', 0);
     initialVisits += 1; saveStored('rb_boutique_visits', initialVisits);
 
+    const HERO_BANNER_PRESETS = [
+      {
+        badge: 'RB Boutique • Moda y Estilo',
+        title: 'TENDENCIAS\nQUE AMARÁS',
+        image: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1200&q=80'
+      },
+      {
+        badge: 'Nueva Colección • Temporada',
+        title: 'OUTFITS QUE\nROBAN MIRADAS',
+        image: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1200&q=80'
+      },
+      {
+        badge: 'Exclusividad • RB VIP',
+        title: 'ESTILO ÚNICO\nPARA TI',
+        image: 'https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=1200&q=80'
+      },
+      {
+        badge: 'Calidad Premium • Envíos Hoy',
+        title: 'MODA URBANA\nY ELEGANTE',
+        image: 'https://images.unsplash.com/photo-1445205170230-053b83016050?auto=format&fit=crop&w=1200&q=80'
+      }
+    ];
+
     const state = {
       appMode: 'storefront', backofficeTab: 'pos', clientBottomTab: 'home',
       selectedCategory: 'Todo', selectedSubcategory: 'Todo', catalogSearch: '',
       profileActiveSection: null,
+      showNotificationsModal: false,
+      isSupportChatOpen: false,
+      activeBannerIdx: 0,
+      adminReplyDrafts: {},
       
       authStatus: loadStored('rb_boutique_current_user', null) ? 'registered' : 'welcome', 
       showGoogleFormInWelcome: false, showAuthRegisterModal: false,
@@ -249,7 +276,13 @@
 
       storeConfig: loadStored('rb_boutique_config', {
         whatsappNumber: '5219991234567', bankName: 'BBVA México', accountHolder: 'Rebeca • RB Boutique Oficial', clabe: '012180015489632147', cardNumber: '4152 3138 7654 8910',
-        socialLinks: { instagram: 'https://instagram.com/rbboutique', facebook: 'https://facebook.com/RBBoutique', tiktok: 'https://tiktok.com/@rbboutique_oficial' }
+        socialLinks: { instagram: 'https://instagram.com/rbboutique', facebook: 'https://facebook.com/RBBoutique', tiktok: 'https://tiktok.com/@rbboutique_oficial' },
+        heroBanner: {
+          badge: 'RB Boutique • Moda y Estilo',
+          title: 'TENDENCIAS\nQUE AMARÁS',
+          image: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1200&q=80',
+          autoRotate: true
+        }
       }),
 
       visualCategories: loadStored('rb_boutique_categories', DEFAULT_VISUAL_CATEGORIES),
@@ -299,6 +332,204 @@
 
     window.toggleProfileSection = function(sectionId) {
       state.profileActiveSection = state.profileActiveSection === sectionId ? null : sectionId;
+      renderApp();
+    };
+
+    setInterval(() => {
+      if (state.appMode === 'storefront' && state.clientBottomTab === 'home') {
+        const hb = state.storeConfig.heroBanner || { autoRotate: true };
+        if (hb.autoRotate !== false) {
+          state.activeBannerIdx = (state.activeBannerIdx + 1) % HERO_BANNER_PRESETS.length;
+          const imgEl = document.getElementById('hero-banner-img');
+          const badgeEl = document.getElementById('hero-banner-badge');
+          const titleEl = document.getElementById('hero-banner-title');
+          const slide = getCurrentHeroSlide();
+          if (imgEl && badgeEl && titleEl && slide) {
+            imgEl.src = slide.image;
+            badgeEl.textContent = slide.badge;
+            titleEl.innerHTML = slide.title.replace(/\n/g, '<br/>');
+          }
+        }
+      }
+    }, 5500);
+
+    function getCurrentHeroSlide() {
+      const hb = state.storeConfig.heroBanner || {};
+      if (hb.autoRotate === false && hb.title) {
+        return {
+          badge: hb.badge || 'RB Boutique • Moda y Estilo',
+          title: hb.title,
+          image: hb.image || HERO_BANNER_PRESETS[0].image
+        };
+      }
+      const customFirstSlide = {
+        badge: hb.badge || HERO_BANNER_PRESETS[0].badge,
+        title: hb.title || HERO_BANNER_PRESETS[0].title,
+        image: hb.image || HERO_BANNER_PRESETS[0].image
+      };
+      const slides = [customFirstSlide, ...HERO_BANNER_PRESETS.slice(1)];
+      return slides[state.activeBannerIdx % slides.length] || customFirstSlide;
+    }
+
+    window.selectHeroPreset = function(idx) {
+      const p = HERO_BANNER_PRESETS[idx];
+      if (!p) return;
+      if (!state.storeConfig.heroBanner) state.storeConfig.heroBanner = {};
+      state.storeConfig.heroBanner.badge = p.badge;
+      state.storeConfig.heroBanner.title = p.title;
+      state.storeConfig.heroBanner.image = p.image;
+      renderApp();
+    };
+
+    function getClientActiveTickets() {
+      if (!state.currentUser) return [];
+      return (state.supportTickets || []).filter(t =>
+        t.status !== 'Resuelto' &&
+        ((t.customerId && t.customerId === state.currentUser.id) ||
+         (t.email && state.currentUser.email && t.email.toLowerCase() === state.currentUser.email.toLowerCase()) ||
+         (t.customerName && t.customerName === state.currentUser.name))
+      );
+    }
+
+    function getClientUnreadNotificationsCount() {
+      if (!state.currentUser) return 0;
+      let count = 0;
+      const g = state.currentUser.vipGift;
+      if (g && !g.used && !isGiftExpired(g)) {
+        count += 1;
+      }
+      const activeTickets = getClientActiveTickets();
+      activeTickets.forEach(t => {
+        if (t.unreadByClient) count += 1;
+      });
+      return count;
+    }
+
+    window.sendClientSupportMessage = function(customText) {
+      if (!state.currentUser) {
+        state.showAuthRegisterModal = true;
+        renderApp();
+        return;
+      }
+      const inputEl = document.getElementById('support-msg') || document.getElementById('floating-chat-input');
+      const rawText = customText !== undefined ? customText : (inputEl ? inputEl.value : '');
+      const text = String(rawText || '').trim();
+      if (!text) {
+        showToast('Escribe tu mensaje primero', 'error');
+        return;
+      }
+      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      let existingTicket = (state.supportTickets || []).find(t =>
+        t.status !== 'Resuelto' &&
+        ((t.customerId && t.customerId === state.currentUser.id) ||
+         (t.email && state.currentUser.email && t.email.toLowerCase() === state.currentUser.email.toLowerCase()))
+      );
+
+      if (existingTicket) {
+        if (!Array.isArray(existingTicket.messages)) {
+          existingTicket.messages = [{ sender: 'client', text: existingTicket.message || '', time: existingTicket.date || nowTime }];
+        }
+        existingTicket.messages.push({ sender: 'client', text, time: nowTime });
+        existingTicket.message = text;
+        existingTicket.unreadByAdmin = true;
+        existingTicket.unreadByClient = false;
+      } else {
+        const newTicket = {
+          id: 'REP-' + Date.now(),
+          customerId: state.currentUser.id,
+          customerName: state.currentUser.name,
+          email: state.currentUser.email,
+          phone: state.currentUser.phone,
+          date: new Date().toLocaleString(),
+          message: text,
+          status: 'Abierto',
+          unreadByAdmin: true,
+          unreadByClient: false,
+          messages: [
+            { sender: 'client', text, time: nowTime }
+          ]
+        };
+        state.supportTickets = [newTicket, ...(state.supportTickets || [])];
+      }
+
+      saveStored('rb_boutique_tickets', state.supportTickets);
+      if (inputEl) inputEl.value = '';
+      state.isSupportChatOpen = true;
+      showToast('💬 Mensaje enviado a Soporte VIP');
+      renderApp();
+    };
+
+    window.sendAdminTicketReply = function(ticketIdx) {
+      const ticket = state.supportTickets[ticketIdx];
+      if (!ticket) return;
+      const replyText = String(state.adminReplyDrafts[ticket.id] || '').trim();
+      if (!replyText) {
+        showToast('Escribe una respuesta para la clienta', 'error');
+        return;
+      }
+      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (!Array.isArray(ticket.messages)) {
+        ticket.messages = [{ sender: 'client', text: ticket.message || '', time: ticket.date || nowTime }];
+      }
+      ticket.messages.push({ sender: 'admin', text: replyText, time: nowTime });
+      ticket.unreadByClient = true;
+      ticket.unreadByAdmin = false;
+      state.adminReplyDrafts[ticket.id] = '';
+      saveStored('rb_boutique_tickets', state.supportTickets);
+      showToast(`✅ Respuesta enviada al chat flotante de ${ticket.customerName}`);
+      renderApp();
+    };
+
+    window.openClientFloatingChat = function() {
+      state.isSupportChatOpen = !state.isSupportChatOpen;
+      if (state.isSupportChatOpen && state.currentUser) {
+        let changed = false;
+        state.supportTickets = (state.supportTickets || []).map(t => {
+          if (t.status !== 'Resuelto' && ((t.customerId && t.customerId === state.currentUser.id) || (t.customerName === state.currentUser.name))) {
+            if (t.unreadByClient) {
+              changed = true;
+              return { ...t, unreadByClient: false };
+            }
+          }
+          return t;
+        });
+        if (changed) saveStored('rb_boutique_tickets', state.supportTickets);
+      }
+      renderApp();
+    };
+
+    window.claimCashPrizeInSupport = function() {
+      if (!state.currentUser || !state.currentUser.vipGift) return;
+      const hrs = Number(state.currentUser.vipGift.durationHours || 3);
+      state.currentUser.vipGift.notified = true;
+      state.currentUser.vipGift.claimedInSupport = true;
+      state.currentUser.vipGift.savedForLater = true;
+      if (!state.currentUser.vipGift.expiresAt) {
+        state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
+      }
+      state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
+      saveStored('rb_boutique_vip_clients', state.vipClients);
+      saveStored('rb_boutique_current_user', state.currentUser);
+      state.showGiftCelebration = false;
+      window.sendClientSupportMessage('🎉 ¡Hola RB Boutique! Gané el premio de $150 MXN en Efectivo en la Ruleta VIP y quiero reclamarlo en Soporte.');
+    };
+
+    window.convertCashPrizeToStoreCoupon = function() {
+      if (!state.currentUser || !state.currentUser.vipGift) return;
+      const hrs = Number(state.currentUser.vipGift.durationHours || 3);
+      state.currentUser.vipGift.notified = true;
+      state.currentUser.vipGift.convertedToCoupon = true;
+      state.currentUser.vipGift.savedForLater = false;
+      state.currentUser.vipGift.message = 'Cupón Digital de $150 MXN activo para tu compra en línea';
+      if (!state.currentUser.vipGift.expiresAt) {
+        state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
+      }
+      state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
+      saveStored('rb_boutique_vip_clients', state.vipClients);
+      saveStored('rb_boutique_current_user', state.currentUser);
+      state.showGiftCelebration = false;
+      state.isBagOpen = true;
+      showToast('🎟️ ¡Tus $150 MXN se convirtieron en Cupón Digital en tu Carrito!');
       renderApp();
     };
 
@@ -676,22 +907,6 @@
       renderApp();
     };
 
-    window.saveVipCouponForLater = function() {
-      if (state.currentUser && state.currentUser.vipGift) {
-        state.currentUser.vipGift.notified = true;
-        state.currentUser.vipGift.savedForLater = true;
-        if (!state.currentUser.vipGift.expiresAt) {
-          state.currentUser.vipGift.expiresAt = Date.now() + (3 * 60 * 60 * 1000);
-        }
-        state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
-        saveStored('rb_boutique_vip_clients', state.vipClients);
-        saveStored('rb_boutique_current_user', state.currentUser);
-      }
-      state.showGiftCelebration = false;
-      showToast('📥 Cupón guardado en tu sección "Yo" (Vence en 3 horas)');
-      renderApp();
-    };
-
     window.markGiftAsNotified = function() {
       window.applyVipCouponNow();
     };
@@ -818,46 +1033,6 @@
       }
       state.vipGiftModal = null;
       showToast(isWheel ? `🎡 Ruleta VIP (${customHours}h) enviada a ${g.clientName}` : `🎁 Cupón de ${customHours}h enviado a ${g.clientName}`);
-      renderApp();
-    };
-
-    window.submitVipGiftModal = function(e) {
-      if (e) e.preventDefault(); const g = state.vipGiftModal; if (!g) return;
-      const isWheel = g.mode === 'wheel';
-      let finalType = g.type;
-      let finalVal = Number(g.value) || 10;
-
-      if (isWheel) {
-        if (g.wheelPrize === '150') {
-          finalType = 'fixed';
-          finalVal = 150;
-        } else {
-          finalType = 'percent';
-          finalVal = Number(g.wheelPrize) || 10;
-        }
-      }
-
-      const exp3Hours = Date.now() + (3 * 60 * 60 * 1000);
-      state.vipClients[g.idx].vipGift = {
-        type: finalType,
-        value: finalVal,
-        message: g.message || '¡Premio Especial VIP RB Boutique!',
-        used: false,
-        notified: false,
-        savedForLater: false,
-        isWheel: isWheel,
-        spun: !isWheel,
-        createdAt: Date.now(),
-        expiresAt: exp3Hours
-      };
-      saveStored('rb_boutique_vip_clients', state.vipClients);
-      if (state.currentUser && state.currentUser.id === state.vipClients[g.idx].id) {
-        state.currentUser = state.vipClients[g.idx];
-        saveStored('rb_boutique_current_user', state.currentUser);
-        state.showGiftCelebration = true;
-      }
-      state.vipGiftModal = null;
-      showToast(isWheel ? `🎡 Ruleta VIP (${finalType==='percent'?finalVal+'%':'$'+finalVal}) enviada a ${g.clientName}` : `🎁 Cupón de 3 horas enviado a ${g.clientName}`);
       renderApp();
     };
 
@@ -1080,6 +1255,8 @@
       const userFavs = state.products.filter(p => state.wishlist.includes(p.id));
       const userOrders = state.currentUser ? state.salesHistory.filter(s => s.customer && s.customer.includes(state.currentUser.name)) : [];
       const hasActiveCoupon = state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift);
+      const unreadNotifs = getClientUnreadNotificationsCount();
+      const heroSlide = getCurrentHeroSlide();
 
       return `
         <div class="min-h-screen bg-zinc-50 pb-24 overflow-x-hidden">
@@ -1091,6 +1268,12 @@
                 <div><span class="font-black text-xl text-black block leading-none">RB</span><span class="block text-[9px] font-extrabold text-pink-600 tracking-wider">BOUTIQUE</span></div>
               </button>
               <div class="flex items-center gap-1.5 shrink-0">
+                <!-- CAMPANA DE NOTIFICACIONES VIP -->
+                <button onclick="state.showNotificationsModal=true; renderApp();" class="relative p-2.5 rounded-full hover:bg-zinc-100 transition text-zinc-800" title="Mis Notificaciones">
+                  <svg class="w-6 h-6 ${unreadNotifs > 0 ? 'text-pink-600 animate-bounce-slow' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                  ${unreadNotifs > 0 ? `<span class="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center shadow animate-pulse">${unreadNotifs}</span>` : ''}
+                </button>
+                <!-- CORAZÓN DE FAVORITOS (SOLO ROPA POR SECCIÓN) -->
                 <button onclick="state.clientBottomTab='wishlist'; renderApp();" class="relative p-2.5 rounded-full hover:bg-zinc-100 transition ${state.clientBottomTab === 'wishlist' ? 'bg-rose-50 text-rose-600' : 'text-zinc-800'}" title="Mis Favoritos">
                   <svg class="w-6 h-6 ${state.clientBottomTab === 'wishlist' ? 'fill-rose-500 text-rose-500' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
                   ${state.wishlist.length > 0 ? `<span class="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow">${state.wishlist.length}</span>` : ''}
@@ -1218,6 +1401,11 @@
                               </div>
                               ${state.currentUser.vipGift.isWheel && !state.currentUser.vipGift.spun ? `
                                 <button onclick="state.showGiftCelebration=true; renderApp();" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-black text-xs shrink-0 shadow">🎡 Girar</button>
+                              ` : (state.currentUser.vipGift.type === 'fixed' && Number(state.currentUser.vipGift.value) === 150 && !state.currentUser.vipGift.convertedToCoupon) ? `
+                                <div class="flex flex-col gap-1.5 shrink-0">
+                                  <button onclick="convertCashPrizeToStoreCoupon()" class="px-3 py-1.5 rounded-xl bg-emerald-500 text-black font-black text-[10px] shadow">🎟️ Convertir en Cupón</button>
+                                  <button onclick="claimCashPrizeInSupport()" class="px-3 py-1.5 rounded-xl bg-zinc-800 border border-zinc-700 text-white font-bold text-[10px]">💬 Reclamar en Soporte</button>
+                                </div>
                               ` : state.currentUser.vipGift.savedForLater ? `
                                 <button onclick="applyVipCouponNow()" class="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-xs shrink-0 shadow">🛒 Usar Ahora</button>
                               ` : `
@@ -1369,8 +1557,8 @@
                       <div class="flex items-center gap-3.5">
                         <div class="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center text-lg shrink-0">💬</div>
                         <div>
-                          <span class="font-black text-sm text-zinc-900 block">Soporte y Atención VIP</span>
-                          <p class="text-[11px] text-zinc-500">Envía dudas o comentarios directo a RB Boutique</p>
+                          <span class="font-black text-sm text-zinc-900 block">Soporte y Atención VIP (Chat en Vivo)</span>
+                          <p class="text-[11px] text-zinc-500">Inicia un chat directo con RB Boutique y recibe respuesta en pantalla</p>
                         </div>
                       </div>
                       <span class="text-zinc-400 font-bold text-sm">${state.profileActiveSection === 'support' ? '▲' : '▼'}</span>
@@ -1378,8 +1566,8 @@
                     ${state.profileActiveSection === 'support' ? `
                       <div class="px-4 pb-4 pt-1 bg-zinc-50/70 animate-fade">
                         <div class="bg-white p-4 rounded-2xl border border-zinc-200 space-y-3">
-                          <textarea id="support-msg" placeholder="Escribe tu duda o comentario sobre tu pedido..." class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs min-h-[80px] focus:outline-none focus:border-pink-500"></textarea>
-                          <button onclick="const msg=document.getElementById('support-msg').value; if(msg.trim()){ state.supportTickets=[{id: 'REP-'+Date.now(), customerName: state.currentUser.name, email: state.currentUser.email, phone: state.currentUser.phone, date: new Date().toLocaleString(), message: msg, status: 'Pendiente'}, ...state.supportTickets]; saveStored('rb_boutique_tickets', state.supportTickets); document.getElementById('support-msg').value=''; showToast('✅ Mensaje enviado a RB Boutique'); renderApp(); } else { showToast('Escribe tu mensaje primero', 'error'); }" class="w-full py-3 rounded-xl bg-black text-white font-bold text-xs shadow hover:bg-zinc-800 transition">Enviar Mensaje</button>
+                          <textarea id="support-msg" placeholder="Escribe tu duda, comentario o solicitud..." class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs min-h-[80px] focus:outline-none focus:border-pink-500"></textarea>
+                          <button onclick="sendClientSupportMessage()" class="w-full py-3 rounded-xl bg-black text-white font-bold text-xs shadow hover:bg-zinc-800 transition">💬 Enviar y Activar Burbuja de Chat</button>
                         </div>
                       </div>
                     ` : ''}
@@ -1413,8 +1601,10 @@
             </main>
           ` : `
             <main class="max-w-6xl mx-auto px-4 py-4 space-y-5 animate-fade overflow-hidden">
+              <!-- BANNER DINÁMICO ROTATIVO CON MARQUESINA 120HZ DE DERECHA A IZQUIERDA INTACTA -->
               <div class="relative rounded-3xl overflow-hidden bg-black text-white min-h-[210px] sm:min-h-[260px] flex items-center justify-center shadow-2xl">
-                <img src="https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1200&q=80" class="absolute inset-0 w-full h-full object-cover opacity-50" />
+                <img id="hero-banner-img" src="${heroSlide.image}" class="absolute inset-0 w-full h-full object-cover opacity-55 transition-all duration-700" />
+                <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent"></div>
                 <div class="absolute inset-0 flex flex-col justify-between">
                   <div class="overflow-hidden bg-pink-600 text-white py-1.5 shadow-md w-full">
                     <div class="animate-marquee font-black text-[11px] tracking-widest uppercase">
@@ -1427,10 +1617,14 @@
                     </div>
                   </div>
                   <div class="p-6 text-center z-10 space-y-2">
-                    <span class="inline-block px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 text-white text-[10px] font-black tracking-wider uppercase mb-1">RB Boutique • Moda y Estilo</span>
-                    <h2 class="text-3xl sm:text-5xl font-black tracking-tight leading-none">TENDENCIAS<br/>QUE AMARÁS</h2>
+                    <span id="hero-banner-badge" class="inline-block px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 text-white text-[10px] font-black tracking-wider uppercase mb-1">${heroSlide.badge}</span>
+                    <h2 id="hero-banner-title" class="text-3xl sm:text-5xl font-black tracking-tight leading-none drop-shadow-lg">${heroSlide.title.replace(/\n/g, '<br/>')}</h2>
                   </div>
-                  <div class="h-5"></div>
+                  <div class="flex items-center justify-center gap-1.5 pb-3 z-10">
+                    ${HERO_BANNER_PRESETS.map((_, idx) => `
+                      <button onclick="state.activeBannerIdx=${idx}; renderApp();" class="w-2 h-2 rounded-full transition ${state.activeBannerIdx % HERO_BANNER_PRESETS.length === idx ? 'bg-pink-500 w-5' : 'bg-white/40'}"></button>
+                    `).join('')}
+                  </div>
                 </div>
               </div>
 
@@ -1482,43 +1676,57 @@
                 ` : ''}
               </div>
 
-              <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-4">
-                ${filteredProducts.map(p => {
-                  const totalStock = getTotalStock(p);
-                  const isLiked = state.wishlist.includes(p.id);
-                  const hasDiscount = Number(p.originalPrice) > Number(p.price);
-                  const discPct = hasDiscount ? Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100) : 0;
-                  return `
-                    <div class="bg-white rounded-2xl border border-zinc-200 overflow-hidden hover:shadow-xl transition flex flex-col group cursor-pointer" onclick="openProductDetail('${p.id}')">
-                      <div class="relative aspect-[3/4] bg-zinc-100 overflow-hidden">
-                        <img src="${p.image}" class="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
-                        <div class="absolute top-2 left-2 flex flex-col gap-1.5">
-                          ${p.isNew ? `<span class="px-2 py-0.5 rounded bg-black text-white font-black text-[9px] shadow-sm uppercase tracking-wider">Nuevo</span>` : ''}
-                          ${hasDiscount ? `<span class="px-2 py-0.5 rounded bg-rose-600 text-white font-black text-[9px] shadow-sm">-${discPct}% OFF</span>` : ''}
-                        </div>
-                        <button onclick="event.stopPropagation(); toggleWishlist('${p.id}')" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur flex items-center justify-center shadow-sm hover:scale-110 transition">
-                          ${isLiked ? '<svg class="w-4 h-4 text-rose-500 fill-rose-500" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>' : '<svg class="w-4 h-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>'}
-                        </button>
-                        ${totalStock === 0 ? `<div class="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center"><span class="px-4 py-1.5 rounded-full bg-white text-black font-black text-xs uppercase tracking-widest shadow-lg">Agotado</span></div>` : ''}
-                      </div>
-                      <div class="p-3 flex-1 flex flex-col justify-between gap-2.5">
-                        <div>
-                          <div class="flex items-center justify-between gap-1 mb-1">
-                            <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider truncate">${p.category}${p.subcategory ? ' • ' + p.subcategory : ''}</span>
-                            ${p.isTrending ? '<span class="text-[9px] font-black text-pink-600 shrink-0">🔥 HOT</span>' : ''}
+              ${filteredProducts.length === 0 ? `
+                <div class="bg-white rounded-3xl border border-zinc-200/90 p-10 sm:p-14 text-center shadow-sm space-y-4 my-2 animate-fade">
+                  <div class="w-16 h-16 rounded-3xl bg-gradient-to-br from-pink-50 to-rose-100 border border-pink-200 text-pink-600 flex items-center justify-center mx-auto text-3xl shadow-inner">✨</div>
+                  <div class="space-y-1.5 max-w-md mx-auto">
+                    <span class="inline-block px-3 py-1 rounded-full bg-pink-50 text-pink-600 border border-pink-200 text-[10px] font-black uppercase tracking-widest">Sección ${state.selectedCategory}${state.selectedSubcategory !== 'Todo' ? ' • ' + state.selectedSubcategory : ''}</span>
+                    <h3 class="text-lg sm:text-xl font-black text-zinc-900 tracking-tight">Próximamente • Trabajando para ti</h3>
+                    <p class="text-xs text-zinc-500 leading-relaxed">Estamos preparando y seleccionando nuevas prendas exclusivas para esta sección. ¡Vuelve muy pronto para descubrir lo nuevo de RB Boutique!</p>
+                  </div>
+                  ${state.selectedCategory !== 'Todo' || state.catalogSearch.trim() !== '' ? `
+                    <button onclick="state.selectedCategory='Todo'; state.selectedSubcategory='Todo'; state.catalogSearch=''; renderApp();" class="px-6 py-3 rounded-2xl bg-black hover:bg-pink-600 text-white text-xs font-black shadow-md transition">Ver Todas las Secciones Disponibles</button>
+                  ` : ''}
+                </div>
+              ` : `
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-4">
+                  ${filteredProducts.map(p => {
+                    const totalStock = getTotalStock(p);
+                    const isLiked = state.wishlist.includes(p.id);
+                    const hasDiscount = Number(p.originalPrice) > Number(p.price);
+                    const discPct = hasDiscount ? Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100) : 0;
+                    return `
+                      <div class="bg-white rounded-2xl border border-zinc-200 overflow-hidden hover:shadow-xl transition flex flex-col group cursor-pointer" onclick="openProductDetail('${p.id}')">
+                        <div class="relative aspect-[3/4] bg-zinc-100 overflow-hidden">
+                          <img src="${p.image}" class="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                          <div class="absolute top-2 left-2 flex flex-col gap-1.5">
+                            ${p.isNew ? `<span class="px-2 py-0.5 rounded bg-black text-white font-black text-[9px] shadow-sm uppercase tracking-wider">Nuevo</span>` : ''}
+                            ${hasDiscount ? `<span class="px-2 py-0.5 rounded bg-rose-600 text-white font-black text-[9px] shadow-sm">-${discPct}% OFF</span>` : ''}
                           </div>
-                          <h3 class="text-xs font-bold text-zinc-800 line-clamp-2 leading-snug group-hover:text-pink-600 transition">${p.name}</h3>
-                          <div class="flex items-baseline gap-2 mt-2 flex-wrap">
-                            <span class="text-base font-black text-rose-600">$${p.price} <span class="text-[9px] text-zinc-500 font-normal">MXN</span></span>
-                            ${hasDiscount ? `<span class="text-[11px] text-zinc-400 line-through font-bold">$${p.originalPrice}</span>` : ''}
-                          </div>
+                          <button onclick="event.stopPropagation(); toggleWishlist('${p.id}')" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur flex items-center justify-center shadow-sm hover:scale-110 transition">
+                            ${isLiked ? '<svg class="w-4 h-4 text-rose-500 fill-rose-500" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>' : '<svg class="w-4 h-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>'}
+                          </button>
+                          ${totalStock === 0 ? `<div class="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center"><span class="px-4 py-1.5 rounded-full bg-white text-black font-black text-xs uppercase tracking-widest shadow-lg">Agotado</span></div>` : ''}
                         </div>
-                        <button ${totalStock === 0 ? 'disabled' : ''} class="w-full py-2 rounded-xl bg-zinc-900 hover:bg-pink-600 disabled:bg-zinc-200 disabled:text-zinc-400 text-white font-bold text-[11px] transition shadow-sm flex justify-center items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>${totalStock === 0 ? 'Sin Stock' : 'Ver Tallas'}</button>
+                        <div class="p-3 flex-1 flex flex-col justify-between gap-2.5">
+                          <div>
+                            <div class="flex items-center justify-between gap-1 mb-1">
+                              <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider truncate">${p.category}${p.subcategory ? ' • ' + p.subcategory : ''}</span>
+                              ${p.isTrending ? '<span class="text-[9px] font-black text-pink-600 shrink-0">🔥 HOT</span>' : ''}
+                            </div>
+                            <h3 class="text-xs font-bold text-zinc-800 line-clamp-2 leading-snug group-hover:text-pink-600 transition">${p.name}</h3>
+                            <div class="flex items-baseline gap-2 mt-2 flex-wrap">
+                              <span class="text-base font-black text-rose-600">$${p.price} <span class="text-[9px] text-zinc-500 font-normal">MXN</span></span>
+                              ${hasDiscount ? `<span class="text-[11px] text-zinc-400 line-through font-bold">$${p.originalPrice}</span>` : ''}
+                            </div>
+                          </div>
+                          <button ${totalStock === 0 ? 'disabled' : ''} class="w-full py-2 rounded-xl bg-zinc-900 hover:bg-pink-600 disabled:bg-zinc-200 disabled:text-zinc-400 text-white font-bold text-[11px] transition shadow-sm flex justify-center items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>${totalStock === 0 ? 'Sin Stock' : 'Ver Tallas'}</button>
+                        </div>
                       </div>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
+                    `;
+                  }).join('')}
+                </div>
+              `}
 
               <div class="py-8 mt-6 text-center border-t border-zinc-200 bg-white rounded-3xl p-6 shadow-sm">
                 <p class="text-[11px] font-black uppercase tracking-widest text-zinc-500 mb-4">Síguenos en nuestras redes oficiales</p>
@@ -1594,8 +1802,91 @@
                   <div class="p-5 bg-zinc-900 border border-zinc-800 rounded-3xl flex justify-between items-center shadow-lg"><div><h3 class="font-black text-emerald-400 text-sm">👁️ Visitas Privadas</h3></div><div class="text-2xl font-black text-white bg-zinc-950 px-5 py-2.5 rounded-2xl border border-zinc-800">${state.visitorCount}</div></div>
                 </div>
               </div>
-              <div class="flex justify-end"><button onclick="saveStored('rb_boutique_config', state.storeConfig); showToast('✅ Configuración guardada'); renderApp();" class="px-6 py-3.5 bg-pink-600 hover:bg-pink-500 text-white font-black text-sm rounded-2xl shadow-lg">💾 Guardar Ajustes</button></div>
-              <div class="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl mt-4 shadow-lg"><div class="flex items-center justify-between mb-4"><div><h3 class="font-black text-white text-base">Bandeja de Reportes VIP</h3></div><span class="px-3 py-1 rounded-full bg-zinc-800 text-xs font-bold text-pink-400">${state.supportTickets.length}</span></div><div class="space-y-2.5">${state.supportTickets.length === 0 ? `<div class="p-8 text-center text-zinc-500 text-sm bg-zinc-950 rounded-2xl border border-zinc-800 border-dashed">No hay reportes.</div>` : state.supportTickets.map((t, idx) => `<div class="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 text-xs flex flex-wrap justify-between items-center gap-4"><div class="flex-1"><div class="flex flex-wrap items-center gap-2 mb-1.5"><span class="font-black text-pink-400 text-sm">${t.customerName}</span><span class="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300">📱 ${t.phone}</span></div><p class="text-zinc-200 text-sm leading-relaxed">${t.message}</p></div><button onclick="confirmAction('¿Marcar como resuelto?', () => { state.supportTickets.splice(${idx},1); saveStored('rb_boutique_tickets', state.supportTickets); })" class="px-3.5 py-2 bg-zinc-800 text-zinc-300 rounded-xl font-bold">Resuelto ✓</button></div>`).join('')}</div></div>
+
+              <div class="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl space-y-4 shadow-lg">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-10 h-10 rounded-2xl bg-pink-500/20 text-pink-400 flex items-center justify-center text-lg">🖼️</div>
+                    <div>
+                      <h3 class="font-black text-white text-base">Personalizar Portada ("Tendencias que amarás")</h3>
+                      <p class="text-[11px] text-zinc-400">Cambia la frase principal, subtítulo y fotografía o elige una de las combinaciones listas.</p>
+                    </div>
+                  </div>
+                  <label class="flex items-center gap-2 text-xs font-bold text-zinc-300 bg-zinc-950 px-3.5 py-2 rounded-xl border border-zinc-800 cursor-pointer">
+                    <input type="checkbox" ${(state.storeConfig.heroBanner?.autoRotate !== false) ? 'checked' : ''} onchange="if(!state.storeConfig.heroBanner) state.storeConfig.heroBanner={}; state.storeConfig.heroBanner.autoRotate=this.checked; renderApp();" class="accent-pink-500 w-4 h-4" />
+                    <span>Rotar frases e imágenes automáticamente</span>
+                  </label>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                  ${HERO_BANNER_PRESETS.map((preset, idx) => `
+                    <button type="button" onclick="selectHeroPreset(${idx})" class="group relative rounded-2xl overflow-hidden border border-zinc-700 hover:border-pink-500 text-left h-24 p-2.5 flex flex-col justify-end transition">
+                      <img src="${preset.image}" class="absolute inset-0 w-full h-full object-cover opacity-45 group-hover:scale-105 transition" />
+                      <div class="relative z-10">
+                        <span class="text-[8px] font-black uppercase text-pink-300 block truncate">${preset.badge}</span>
+                        <span class="text-[10px] font-black text-white leading-tight block">${preset.title.replace(/\n/g, ' ')}</span>
+                      </div>
+                    </button>
+                  `).join('')}
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-1">
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Etiqueta Superior</label>
+                    <input type="text" value="${(state.storeConfig.heroBanner?.badge || 'RB Boutique • Moda y Estilo').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.heroBanner) state.storeConfig.heroBanner={}; state.storeConfig.heroBanner.badge=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-pink-400 uppercase block mb-1">Frase Principal (Ej. TENDENCIAS QUE AMARÁS)</label>
+                    <input type="text" value="${(state.storeConfig.heroBanner?.title || 'TENDENCIAS QUE AMARÁS').replace(/\n/g, ' ').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.heroBanner) state.storeConfig.heroBanner={}; state.storeConfig.heroBanner.title=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-pink-500/50 text-white font-black" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Link de Imagen de Fondo (URL)</label>
+                    <input type="url" value="${(state.storeConfig.heroBanner?.image || HERO_BANNER_PRESETS[0].image).replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.heroBanner) state.storeConfig.heroBanner={}; state.storeConfig.heroBanner.image=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex justify-end"><button onclick="saveStored('rb_boutique_config', state.storeConfig); showToast('✅ Configuración y Portada guardadas'); renderApp();" class="px-6 py-3.5 bg-pink-600 hover:bg-pink-500 text-white font-black text-sm rounded-2xl shadow-lg">💾 Guardar Ajustes y Portada</button></div>
+
+              <div class="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl mt-4 shadow-lg">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="font-black text-white text-base">💬 Bandeja de Reportes y Chat en Vivo VIP</h3>
+                    <p class="text-[11px] text-zinc-400">Responde aquí para activar la burbuja de chat flotante en el celular de la clienta. Al marcar "Resuelto ✓", su burbuja desaparece.</p>
+                  </div>
+                  <span class="px-3 py-1 rounded-full bg-zinc-800 text-xs font-bold text-pink-400">${state.supportTickets.length}</span>
+                </div>
+                <div class="space-y-3.5">
+                  ${state.supportTickets.length === 0 ? `<div class="p-8 text-center text-zinc-500 text-sm bg-zinc-950 rounded-2xl border border-zinc-800 border-dashed">No hay chats ni reportes pendientes.</div>` : state.supportTickets.map((t, idx) => `
+                    <div class="p-4 bg-zinc-950 rounded-2xl border ${t.unreadByAdmin ? 'border-pink-500' : 'border-zinc-800'} text-xs space-y-3">
+                      <div class="flex flex-wrap justify-between items-center gap-2 border-b border-zinc-800 pb-2.5">
+                        <div class="flex flex-wrap items-center gap-2">
+                          <span class="font-black text-pink-400 text-sm">${t.customerName}</span>
+                          <span class="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300">📱 ${t.phone}</span>
+                          ${t.unreadByAdmin ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">Nuevo Mensaje</span>` : ''}
+                        </div>
+                        <button onclick="confirmAction('¿Marcar conversación como resuelta? Esto cerrará y ocultará la burbuja de chat en la pantalla de la clienta.', () => { state.supportTickets.splice(${idx},1); saveStored('rb_boutique_tickets', state.supportTickets); showToast('✅ Caso resuelto y burbuja cerrada'); })" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl font-black transition">Resuelto ✓</button>
+                      </div>
+
+                      <div class="space-y-2 max-h-44 overflow-y-auto pr-1">
+                        ${(Array.isArray(t.messages) && t.messages.length > 0 ? t.messages : [{ sender: 'client', text: t.message, time: t.date || '' }]).map(m => `
+                          <div class="flex ${m.sender === 'admin' ? 'justify-end' : 'justify-start'}">
+                            <div class="max-w-[80%] px-3.5 py-2 rounded-2xl ${m.sender === 'admin' ? 'bg-pink-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-200'}">
+                              <p class="text-xs leading-relaxed">${m.text}</p>
+                              <span class="block text-[9px] opacity-70 mt-0.5 text-right">${m.sender === 'admin' ? 'Tú (RB Boutique)' : t.customerName} • ${m.time || ''}</span>
+                            </div>
+                          </div>
+                        `).join('')}
+                      </div>
+
+                      <div class="flex gap-2 pt-1">
+                        <input type="text" placeholder="Escribe tu respuesta para ${t.customerName}..." value="${(state.adminReplyDrafts[t.id] || '').replace(/"/g, '&quot;')}" oninput="state.adminReplyDrafts['${t.id}']=this.value;" onkeydown="if(event.key==='Enter'){ event.preventDefault(); sendAdminTicketReply(${idx}); }" class="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs focus:border-pink-500 outline-none" />
+                        <button onclick="sendAdminTicketReply(${idx})" class="px-4 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black text-xs shrink-0 shadow">Responder 💬</button>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
             </main>
           ` : state.backofficeTab === 'clients' ? `
             <main class="max-w-6xl mx-auto px-4 py-6 space-y-4 animate-fade">
@@ -1781,9 +2072,104 @@
         html += `<div class="fixed inset-0 z-[92] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitSupervisorPin(event)" class="bg-zinc-900 border-2 border-amber-500/60 text-white rounded-3xl max-w-xs w-full p-7 space-y-5 animate-fade shadow-2xl"><div class="flex justify-between items-center"><h3 class="font-black text-base text-amber-400">PIN DE SEGURIDAD (1994)</h3><button type="button" onclick="state.pinAuthModal=null; renderApp();" class="text-zinc-500 hover:text-white">✕</button></div><input type="password" maxlength="4" required autofocus value="${state.pinAuthModal.pinInput}" oninput="state.pinAuthModal.pinInput=this.value;" class="w-full text-center py-4 bg-zinc-950 border border-amber-500 text-2xl tracking-[0.5em] rounded-xl outline-none"/><button type="submit" class="w-full py-3.5 bg-amber-500 text-black font-black text-sm rounded-xl">Autorizar</button></form></div>`;
       }
 
+      if (state.editingClientModal) {
+        const c = state.editingClientModal;
+        html += `
+          <div class="fixed inset-0 z-[96] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print">
+            <form onsubmit="event.preventDefault(); state.vipClients[${c.idx}].name=state.editingClientModal.name.trim(); state.vipClients[${c.idx}].phone=state.editingClientModal.phone.trim(); state.vipClients[${c.idx}].email=state.editingClientModal.email.trim(); saveStored('rb_boutique_vip_clients', state.vipClients); if(state.currentUser && state.currentUser.id===state.vipClients[${c.idx}].id){ state.currentUser=state.vipClients[${c.idx}]; saveStored('rb_boutique_current_user', state.currentUser); } state.editingClientModal=null; showToast('✅ Datos de clienta VIP actualizados'); renderApp();" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-6 space-y-4 animate-fade shadow-2xl">
+              <div class="flex justify-between items-center border-b border-zinc-800 pb-3">
+                <div>
+                  <span class="text-[10px] font-black text-pink-400 uppercase">Club VIP RB Boutique</span>
+                  <h3 class="font-black text-base">✏️ Editar Cliente VIP</h3>
+                </div>
+                <button type="button" onclick="state.editingClientModal=null; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center hover:text-white">✕</button>
+              </div>
+              <div class="space-y-3 text-xs">
+                <div>
+                  <label class="block text-zinc-400 font-bold mb-1 uppercase text-[10px]">Nombre y Apellido</label>
+                  <input type="text" required value="${c.name.replace(/"/g, '&quot;')}" oninput="state.editingClientModal.name=this.value;" class="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-xl text-white font-bold" />
+                </div>
+                <div>
+                  <label class="block text-zinc-400 font-bold mb-1 uppercase text-[10px]">Teléfono WhatsApp</label>
+                  <input type="tel" required value="${c.phone.replace(/"/g, '&quot;')}" oninput="state.editingClientModal.phone=this.value;" class="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-xl text-white font-mono" />
+                </div>
+                <div>
+                  <label class="block text-zinc-400 font-bold mb-1 uppercase text-[10px]">Correo Electrónico</label>
+                  <input type="email" required value="${c.email.replace(/"/g, '&quot;')}" oninput="state.editingClientModal.email=this.value;" class="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-xl text-white" />
+                </div>
+              </div>
+              <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs rounded-xl shadow-lg">💾 Guardar Cambios</button>
+            </form>
+          </div>
+        `;
+      }
+
+      if (state.showNotificationsModal) {
+        const activeGift = state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift) ? state.currentUser.vipGift : null;
+        const activeTickets = getClientActiveTickets();
+        html += `
+          <div class="fixed inset-0 z-[95] bg-black/80 backdrop-blur-sm flex items-start justify-end p-4 pt-16 no-print">
+            <div class="bg-white text-zinc-900 rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-zinc-200 space-y-4 animate-fade">
+              <div class="flex items-center justify-between border-b border-zinc-100 pb-3">
+                <div class="flex items-center gap-2">
+                  <span class="w-8 h-8 rounded-xl bg-pink-50 text-pink-600 flex items-center justify-center font-black">🔔</span>
+                  <div>
+                    <h3 class="font-black text-sm text-zinc-900">Mis Notificaciones VIP</h3>
+                    <p class="text-[10px] text-zinc-500">Premios, giros de ruleta y mensajes</p>
+                  </div>
+                </div>
+                <button onclick="state.showNotificationsModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 flex items-center justify-center">✕</button>
+              </div>
+
+              <div class="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+                ${!activeGift && activeTickets.length === 0 ? `
+                  <div class="py-10 text-center space-y-2">
+                    <div class="text-3xl">✨</div>
+                    <p class="text-xs font-bold text-zinc-700">No tienes notificaciones pendientes</p>
+                    <p class="text-[11px] text-zinc-400">Cuando recibas una Ruleta VIP, un cupón o respuesta de Soporte aparecerá aquí.</p>
+                  </div>
+                ` : ''}
+
+                ${activeGift ? `
+                  <div class="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 via-black to-pink-950 text-white space-y-3 shadow-lg border border-pink-500/40">
+                    <div class="flex items-center justify-between">
+                      <span class="px-2.5 py-0.5 rounded-full bg-pink-600 text-white text-[9px] font-black uppercase">${activeGift.isWheel && !activeGift.spun ? '🎡 Giro de Ruleta Disponible' : '🎁 Cupón VIP Activo'}</span>
+                      <span class="text-[11px] font-mono font-black text-rose-300">⏳ <span class="vip-countdown-timer">${formatRemainingTime(activeGift.expiresAt)}</span></span>
+                    </div>
+                    <p class="text-xs font-bold text-zinc-200">${activeGift.message}</p>
+                    ${activeGift.isWheel && !activeGift.spun ? `
+                      <button onclick="state.showNotificationsModal=false; state.showGiftCelebration=true; renderApp();" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-pink-500 to-rose-600 text-white font-black text-xs shadow">🎡 Abrir y Girar mi Ruleta Ahora</button>
+                    ` : (activeGift.type === 'fixed' && Number(activeGift.value) === 150 && !activeGift.convertedToCoupon) ? `
+                      <div class="grid grid-cols-2 gap-2">
+                        <button onclick="state.showNotificationsModal=false; convertCashPrizeToStoreCoupon();" class="py-2 px-2 rounded-xl bg-emerald-500 text-black font-black text-[10px]">🎟️ Convertir Cupón $150</button>
+                        <button onclick="state.showNotificationsModal=false; claimCashPrizeInSupport();" class="py-2 px-2 rounded-xl bg-zinc-800 text-white font-bold text-[10px] border border-zinc-700">💬 Reclamar en Soporte</button>
+                      </div>
+                    ` : `
+                      <button onclick="state.showNotificationsModal=false; applyVipCouponNow();" class="w-full py-2.5 rounded-xl bg-white text-black font-black text-xs shadow">🛒 Aplicar en mi Carrito (${activeGift.type === 'percent' ? activeGift.value + '% OFF' : '$' + activeGift.value + ' MXN'})</button>
+                    `}
+                  </div>
+                ` : ''}
+
+                ${activeTickets.map(t => `
+                  <div class="p-3.5 rounded-2xl bg-purple-50 border border-purple-200 space-y-2 text-xs">
+                    <div class="flex items-center justify-between">
+                      <span class="font-black text-purple-900 flex items-center gap-1">💬 Soporte RB Boutique</span>
+                      ${t.unreadByClient ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">Nueva Respuesta</span>` : `<span class="text-[10px] text-purple-600 font-bold">Chat Activo</span>`}
+                    </div>
+                    <p class="text-zinc-700 line-clamp-2">${(Array.isArray(t.messages) && t.messages.length > 0) ? t.messages[t.messages.length - 1].text : t.message}</p>
+                    <button onclick="state.showNotificationsModal=false; state.isSupportChatOpen=true; openClientFloatingChat(); state.isSupportChatOpen=true; renderApp();" class="w-full py-2 rounded-xl bg-black text-white font-black text-[11px]">Abrir Burbuja de Chat</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
       if (state.showGiftCelebration && state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift)) {
         const g = state.currentUser.vipGift;
         const needsSpin = g.isWheel && !g.spun;
+        const isCash150 = g.type === 'fixed' && Number(g.value) === 150;
         html += `
           <div class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 no-print">
             <div class="bg-zinc-900 border-2 border-pink-500 text-white rounded-[2rem] max-w-sm w-full p-6 text-center space-y-5 shadow-[0_0_40px_rgba(219,39,119,0.35)] animate-fade relative overflow-hidden">
@@ -1801,10 +2187,7 @@
                 </div>
 
                 <div class="relative pt-4 pb-2 flex flex-col items-center">
-                  <!-- Puntero Superior -->
                   <div class="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[22px] border-t-amber-400 z-20 -mb-3 drop-shadow-lg"></div>
-                  
-                  <!-- Rueda Giratoria con 6 Premios -->
                   <div id="vip-wheel-element" class="wheel-container" style="transform: rotate(${state.wheelRotation}deg);">
                     <div class="wheel-label" style="transform: rotate(-60deg);">5% OFF</div>
                     <div class="wheel-label" style="transform: rotate(0deg);">50% OFF</div>
@@ -1819,7 +2202,7 @@
                   ${state.wheelSpinning ? '🎡 Girando la Ruleta...' : '🎯 ¡GIRAR RULETA AHORA!'}
                 </button>
               ` : `
-                <div class="text-5xl animate-bounce-slow">🎁🎉</div>
+                <div class="text-5xl animate-bounce-slow">${isCash150 ? '💵🎉' : '🎁🎉'}</div>
                 <div>
                   <h2 class="text-2xl font-black">¡Felicidades, ${state.currentUser.name.split(' ')[0]}!</h2>
                   <p class="text-xs text-zinc-300 mt-1">${g.message}</p>
@@ -1828,16 +2211,27 @@
                   Ganaste: ${g.type === 'percent' ? g.value + '% DE DESCUENTO EXTRA' : '$' + g.value + ' MXN EN EFECTIVO'}
                 </div>
                 <p class="text-[11px] text-rose-300 font-bold bg-rose-950/50 border border-rose-500/30 py-2 px-3 rounded-xl">
-                  ⏳ Este cupón vence en <span class="vip-countdown-timer font-mono font-black">${formatRemainingTime(g.expiresAt)}</span> hrs
+                  ⏳ Este beneficio vence en <span class="vip-countdown-timer font-mono font-black">${formatRemainingTime(g.expiresAt)}</span> hrs
                 </p>
-                <div class="space-y-2.5 pt-1">
-                  <button onclick="applyVipCouponNow()" class="w-full py-3.5 rounded-2xl bg-white text-black font-black text-xs shadow-xl hover:bg-zinc-100 transition flex items-center justify-center gap-2">
-                    🛒 Aplicar Cupón en mi Carrito Ahora
-                  </button>
-                  <button onclick="saveVipCouponForLater()" class="w-full py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs border border-zinc-700 transition">
-                    📥 Guardar Cupón para mi Próxima Compra (3 hrs)
-                  </button>
-                </div>
+                ${isCash150 ? `
+                  <div class="space-y-2.5 pt-1">
+                    <button onclick="convertCashPrizeToStoreCoupon()" class="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs shadow-xl transition flex items-center justify-center gap-2">
+                      🎟️ Convertir en Cupón de $150 Pesos para Comprar en Línea
+                    </button>
+                    <button onclick="claimCashPrizeInSupport()" class="w-full py-3 rounded-2xl bg-white text-black hover:bg-zinc-200 font-black text-xs shadow transition flex items-center justify-center gap-2">
+                      💬 Reclamar $150 en Efectivo en Soporte VIP
+                    </button>
+                  </div>
+                ` : `
+                  <div class="space-y-2.5 pt-1">
+                    <button onclick="applyVipCouponNow()" class="w-full py-3.5 rounded-2xl bg-white text-black font-black text-xs shadow-xl hover:bg-zinc-100 transition flex items-center justify-center gap-2">
+                      🛒 Aplicar Cupón en mi Carrito Ahora
+                    </button>
+                    <button onclick="saveVipCouponForLater()" class="w-full py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs border border-zinc-700 transition">
+                      📥 Guardar Cupón para mi Próxima Compra
+                    </button>
+                  </div>
+                `}
               `}
             </div>
           </div>
@@ -1924,6 +2318,57 @@
             </div>
           </div>
         `;
+      }
+
+      if (state.appMode === 'storefront' && state.authStatus === 'registered' && state.currentUser) {
+        const activeTickets = getClientActiveTickets();
+        if (activeTickets.length > 0) {
+          const currentTicket = activeTickets[0];
+          const hasUnreadReply = Boolean(currentTicket.unreadByClient);
+          const chatMessages = Array.isArray(currentTicket.messages) && currentTicket.messages.length > 0
+            ? currentTicket.messages
+            : [{ sender: 'client', text: currentTicket.message, time: currentTicket.date || '' }];
+
+          html += `
+            <div class="fixed bottom-20 right-4 z-[88] flex flex-col items-end no-print">
+              ${state.isSupportChatOpen ? `
+                <div class="mb-3 w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden animate-fade flex flex-col max-h-[420px]">
+                  <div class="bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white p-4 flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                      <div class="w-9 h-9 rounded-2xl bg-pink-600 flex items-center justify-center font-black text-sm shadow">RB</div>
+                      <div>
+                        <h4 class="font-black text-xs">Soporte VIP • RB Boutique</h4>
+                        <span class="text-[10px] text-emerald-400 font-bold flex items-center gap-1">● Chat en vivo activo</span>
+                      </div>
+                    </div>
+                    <button onclick="openClientFloatingChat()" class="w-7 h-7 rounded-full bg-white/10 text-white flex items-center justify-center text-xs">✕</button>
+                  </div>
+
+                  <div class="flex-1 p-3.5 space-y-2.5 overflow-y-auto bg-zinc-50 max-h-64">
+                    ${chatMessages.map(m => `
+                      <div class="flex ${m.sender === 'client' ? 'justify-end' : 'justify-start'}">
+                        <div class="max-w-[82%] px-3.5 py-2 rounded-2xl text-xs ${m.sender === 'client' ? 'bg-black text-white' : 'bg-pink-600 text-white shadow-sm'}">
+                          <p class="leading-relaxed">${m.text}</p>
+                          <span class="block text-[9px] opacity-75 mt-0.5 text-right">${m.sender === 'client' ? 'Tú' : 'RB Boutique'} • ${m.time || ''}</span>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+
+                  <div class="p-2.5 bg-white border-t border-zinc-200 flex gap-2">
+                    <input id="floating-chat-input" type="text" placeholder="Escribe un mensaje..." onkeydown="if(event.key==='Enter'){ event.preventDefault(); sendClientSupportMessage(); }" class="flex-1 px-3.5 py-2 rounded-xl bg-zinc-100 text-xs text-zinc-900 focus:outline-none focus:ring-1 focus:ring-black" />
+                    <button onclick="sendClientSupportMessage()" class="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black text-xs shrink-0">Enviar</button>
+                  </div>
+                </div>
+              ` : ''}
+
+              <button onclick="openClientFloatingChat()" class="relative w-14 h-14 rounded-full bg-gradient-to-tr from-pink-600 to-rose-500 text-white shadow-[0_8px_25px_rgba(225,29,72,0.5)] flex items-center justify-center text-2xl hover:scale-105 transition border-2 border-white">
+                💬
+                ${hasUnreadReply ? `<span class="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-black text-white text-[9px] font-black uppercase border border-white animate-bounce">Nuevo</span>` : ''}
+              </button>
+            </div>
+          `;
+        }
       }
 
       return html;
