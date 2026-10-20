@@ -236,11 +236,12 @@
     const state = {
       appMode: 'storefront', backofficeTab: 'pos', clientBottomTab: 'home',
       selectedCategory: 'Todo', selectedSubcategory: 'Todo', catalogSearch: '',
+      profileActiveSection: null,
       
       authStatus: loadStored('rb_boutique_current_user', null) ? 'registered' : 'welcome', 
       showGoogleFormInWelcome: false, showAuthRegisterModal: false,
       currentUser: loadStored('rb_boutique_current_user', null),
-      regForm: { name: '', email: '', phone: '', referralCode: '' },
+      regForm: { name: '', email: '', phone: '', referralCode: '', googleVerified: false },
 
       logoTapCount: 0, showAdminLoginModal: false, adminUser: '', adminPass: '',
       pinAuthModal: null, confirmModal: null, editingClientModal: null, vipGiftModal: null,
@@ -296,6 +297,11 @@
       return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
     }
 
+    window.toggleProfileSection = function(sectionId) {
+      state.profileActiveSection = state.profileActiveSection === sectionId ? null : sectionId;
+      renderApp();
+    };
+
     setInterval(() => {
       if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used) {
         const g = state.currentUser.vipGift;
@@ -305,7 +311,7 @@
           saveStored('rb_boutique_vip_clients', state.vipClients);
           saveStored('rb_boutique_current_user', state.currentUser);
           state.showGiftCelebration = false;
-          showToast('⏰ Tu cupón VIP de 3 horas ha expirado', 'error');
+          showToast('⏰ Tu cupón VIP ha expirado', 'error');
           renderApp();
           return;
         }
@@ -402,83 +408,43 @@
         state.regForm.email = user.email || '';
         state.regForm.phone = '';
         state.regForm.referralCode = '';
-        state.showGoogleFormInWelcome = true;
-        renderApp();
-      }
-    }
-
-    window.loginWithGoogle = async function() {
-      try {
-        // En iPhone instalado en Pantalla de Inicio (Standalone), Apple bloquea cookies cruzadas de redirección.
-        // Abrimos directo el acceso rápido VIP sin causar bucle infinito.
-        if (isIOSDevice() && isInStandaloneMode()) {
-          if (state.authStatus === 'welcome') {
-            state.showGoogleFormInWelcome = true;
-          } else {
-            state.showAuthRegisterModal = true;
-          }
-          showToast('✨ Completa o recupera tu acceso VIP directo aquí');
-          renderApp();
-          return;
-        }
-
-        if (!window.auth) {
-          if (state.authStatus === 'welcome') state.showGoogleFormInWelcome = true;
-          else state.showAuthRegisterModal = true;
-          renderApp();
-          return;
-        }
-
-        await window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-        const provider = new firebase.auth.GoogleAuthProvider();
-        provider.setCustomParameters({ prompt: 'select_account' });
-
-        // Usamos Popup directo (funciona en Android, PC y Safari normal sin perder memoria)
-        const result = await window.auth.signInWithPopup(provider);
-        if (result && result.user) {
-          handleGoogleUserAuthenticated(result.user);
-        }
-      } catch (err) {
-        console.warn("Auth fallback anti-bucle activado:", err);
+        state.regForm.googleVerified = true;
         if (state.authStatus === 'welcome') {
           state.showGoogleFormInWelcome = true;
         } else {
           state.showAuthRegisterModal = true;
         }
-        showToast('Completa o recupera tu Cuenta VIP directo aquí 👇');
+        showToast('✅ Correo de Google vinculado. Confirma tu nombre y WhatsApp.');
         renderApp();
       }
-    };
+    }
 
-    window.quickRecoverVipAccount = function() {
-      const emailInput = (state.regForm.email || '').trim().toLowerCase();
-      const phoneInput = (state.regForm.phone || '').trim().replace(/\D/g, '');
-
-      if (!emailInput && phoneInput.length < 10) {
-        showToast('Escribe tu Correo o tu WhatsApp (10 dígitos) para recuperar tu cuenta', 'error');
+    window.loginWithGoogle = function() {
+      if (!window.auth) {
+        showToast('Error al inicializar el servicio de Google Auth', 'error');
         return;
       }
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
 
-      const foundClient = state.vipClients.find(c => {
-        const cEmail = (c.email || '').trim().toLowerCase();
-        const cPhone = (c.phone || '').trim().replace(/\D/g, '');
-        return (emailInput && cEmail === emailInput) || (phoneInput.length >= 10 && cPhone === phoneInput);
-      });
-
-      if (foundClient) {
-        state.currentUser = foundClient;
-        saveStored('rb_boutique_current_user', foundClient);
-        state.authStatus = 'registered';
-        state.showAuthRegisterModal = false;
-        state.showGoogleFormInWelcome = false;
-        showToast(`🎉 ¡Bienvenida de nuevo, ${foundClient.name}!`);
-        if (foundClient.vipGift && !foundClient.vipGift.used && !isGiftExpired(foundClient.vipGift) && !foundClient.vipGift.notified) {
-          state.showGiftCelebration = true;
+      // Llamada síncrona inmediata en el primer milisegundo del clic para abrir la ventana oficial de Google sin bloqueo en iPhone ni Android
+      window.auth.signInWithPopup(provider).then((result) => {
+        if (result && result.user) {
+          handleGoogleUserAuthenticated(result.user);
         }
-        renderApp();
-      } else {
-        showToast('No encontramos cuenta con ese dato. Escribe tu nombre arriba para crearla.', 'error');
-      }
+      }).catch((err) => {
+        console.warn("Google Popup aviso:", err);
+        if (err && err.code === 'auth/popup-closed-by-user') {
+          showToast('Cerraste la ventana de Google antes de elegir tu cuenta', 'error');
+          return;
+        }
+        // Si está en modo pantalla de inicio estricto de iOS donde WebKit bloquea ventanas emergentes, usamos redirección oficial de Google
+        if (window.auth && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment')) {
+          window.auth.signInWithRedirect(provider);
+          return;
+        }
+        showToast('No se pudo abrir Google (' + (err.code || 'verifica tu conexión') + ')', 'error');
+      });
     };
 
     window.submitCompleteRegistration = function(e) {
@@ -487,24 +453,33 @@
         const cleanEmail = (email || '').trim().toLowerCase();
         const cleanPhone = (phone || '').trim().replace(/\D/g, '');
 
-        // Si la clienta ya existe por correo o por teléfono en Firebase, recuperamos su sesión al instante
+        if (!cleanEmail) {
+          showToast('Primero vincula tu cuenta de Google', 'error');
+          return;
+        }
+
         let existingClient = state.vipClients.find(c =>
           (cleanEmail && c.email && c.email.trim().toLowerCase() === cleanEmail) ||
           (cleanPhone.length >= 10 && c.phone && c.phone.trim().replace(/\D/g, '') === cleanPhone)
         );
         if (existingClient) {
-          handleGoogleUserAuthenticated({ displayName: existingClient.name, email: existingClient.email });
+          state.currentUser = existingClient;
+          saveStored('rb_boutique_current_user', existingClient);
+          state.authStatus = 'registered';
+          state.showAuthRegisterModal = false;
+          state.showGoogleFormInWelcome = false;
+          showToast(`🎉 ¡Bienvenida de nuevo, ${existingClient.name}!`);
+          renderApp();
           return;
         }
 
-        if (!name || !name.trim()) { showToast('Escribe tu nombre completo', 'error'); return; }
-        if (!email || !email.trim()) { showToast('Escribe tu correo electrónico', 'error'); return; }
-        if (!phone || phone.length < 10) { showToast('El WhatsApp es obligatorio (10 dígitos)', 'error'); return; }
+        if (!name || !name.trim()) { showToast('Escribe tu nombre y apellido', 'error'); return; }
+        if (!cleanPhone || cleanPhone.length < 10) { showToast('Ingresa tu número de WhatsApp (10 dígitos)', 'error'); return; }
 
         const newCode = name.trim().split(' ')[0].toUpperCase() + Math.floor(1000 + Math.random() * 9000);
         
         let clientRecord = { 
-            id: `VIP-${Date.now()}`, name: name.trim(), email: email.trim(), phone: phone.trim(), discountPct: 10, joinedAt: new Date().toLocaleDateString(), vipGift: null,
+            id: `VIP-${Date.now()}`, name: name.trim(), email: email.trim(), phone: cleanPhone, discountPct: 10, joinedAt: new Date().toLocaleDateString(), vipGift: null,
             referralCode: newCode, referredByCode: (referralCode || '').trim().toUpperCase(), hasMadePurchase: false, successfulReferrals: 0,
             address: '', mapsUrl: ''
         };
@@ -543,11 +518,12 @@
                let referer = state.vipClients.find(c => c.referralCode === client.referredByCode);
                if(referer) {
                    referer.successfulReferrals = (referer.successfulReferrals || 0) + 1;
-                   const exp3Hrs = Date.now() + (3 * 60 * 60 * 1000);
+                   const defaultRefHrs = Number(state.storeConfig.defaultCouponHours || 3);
+                   const expHrs = Date.now() + (defaultRefHrs * 60 * 60 * 1000);
                    if(referer.successfulReferrals === 3) {
-                       referer.vipGift = { type: 'percent', value: 10, message: '¡Felicidades! 3 amig@s compraron con tu código. Tienes 10% OFF extra por 3 horas.', used: false, notified: false, savedForLater: false, isWheel: false, spun: true, createdAt: Date.now(), expiresAt: exp3Hrs };
+                       referer.vipGift = { type: 'percent', value: 10, message: `¡Felicidades! 3 amig@s compraron con tu código. Tienes 10% OFF extra por ${defaultRefHrs} horas.`, used: false, notified: false, savedForLater: false, isWheel: false, spun: true, durationHours: defaultRefHrs, createdAt: Date.now(), expiresAt: expHrs };
                    } else if (referer.successfulReferrals === 5) {
-                       referer.vipGift = { type: 'percent', value: 15, message: '¡Felicidades! 5 amig@s compraron con tu código. Tienes 15% OFF extra por 3 horas.', used: false, notified: false, savedForLater: false, isWheel: false, spun: true, createdAt: Date.now(), expiresAt: exp3Hrs };
+                       referer.vipGift = { type: 'percent', value: 15, message: `¡Felicidades! 5 amig@s compraron con tu código. Tienes 15% OFF extra por ${defaultRefHrs} horas.`, used: false, notified: false, savedForLater: false, isWheel: false, spun: true, durationHours: defaultRefHrs, createdAt: Date.now(), expiresAt: expHrs };
                    }
                }
            }
@@ -653,23 +629,25 @@
       setTimeout(() => {
         state.wheelSpinning = false;
         if (state.currentUser && state.currentUser.vipGift) {
+          const hrs = Number(state.currentUser.vipGift.durationHours || 3);
           state.currentUser.vipGift.spun = true;
-          state.currentUser.vipGift.expiresAt = Date.now() + (3 * 60 * 60 * 1000);
+          state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
           state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
           saveStored('rb_boutique_vip_clients', state.vipClients);
           saveStored('rb_boutique_current_user', state.currentUser);
+          showToast(`🎉 ¡Felicidades! Ganaste tu cupón exclusivo (Válido por ${hrs} ${hrs === 1 ? 'hora' : 'horas'})`);
         }
-        showToast('🎉 ¡Felicidades! Ganaste tu cupón exclusivo (Válido por 3 horas)');
         renderApp();
       }, 4300);
     };
 
     window.applyVipCouponNow = function() {
       if (state.currentUser && state.currentUser.vipGift) {
+        const hrs = Number(state.currentUser.vipGift.durationHours || 3);
         state.currentUser.vipGift.notified = true;
         state.currentUser.vipGift.savedForLater = false;
         if (!state.currentUser.vipGift.expiresAt) {
-          state.currentUser.vipGift.expiresAt = Date.now() + (3 * 60 * 60 * 1000);
+          state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
         }
         state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
         saveStored('rb_boutique_vip_clients', state.vipClients);
@@ -677,7 +655,24 @@
       }
       state.showGiftCelebration = false;
       state.isBagOpen = true;
-      showToast('🛒 ¡Cupón aplicado en tu Carrito! Tienes 3 horas para usarlo.');
+      showToast('🛒 ¡Cupón aplicado en tu Carrito!');
+      renderApp();
+    };
+
+    window.saveVipCouponForLater = function() {
+      if (state.currentUser && state.currentUser.vipGift) {
+        const hrs = Number(state.currentUser.vipGift.durationHours || 3);
+        state.currentUser.vipGift.notified = true;
+        state.currentUser.vipGift.savedForLater = true;
+        if (!state.currentUser.vipGift.expiresAt) {
+          state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
+        }
+        state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
+        saveStored('rb_boutique_vip_clients', state.vipClients);
+        saveStored('rb_boutique_current_user', state.currentUser);
+      }
+      state.showGiftCelebration = false;
+      showToast('📥 Cupón guardado en tu sección "Yo"');
       renderApp();
     };
 
@@ -776,10 +771,53 @@
         clientName: cl.name,
         mode: 'wheel', // 'wheel' (Ruleta) o 'direct' (Cupón directo)
         wheelPrize: '10', // '5', '10', '15', '50', '90', '150'
+        durationHours: '3', // Horario/Tiempo configurable por Rebeca
         message: '¡Gira la Ruleta VIP de RB Boutique y gana hasta 90% OFF!',
         type: 'percent',
         value: '10'
       };
+      renderApp();
+    };
+
+    window.submitVipGiftModal = function(e) {
+      if (e) e.preventDefault(); const g = state.vipGiftModal; if (!g) return;
+      const isWheel = g.mode === 'wheel';
+      let finalType = g.type;
+      let finalVal = Number(g.value) || 10;
+
+      if (isWheel) {
+        if (g.wheelPrize === '150') {
+          finalType = 'fixed';
+          finalVal = 150;
+        } else {
+          finalType = 'percent';
+          finalVal = Number(g.wheelPrize) || 10;
+        }
+      }
+
+      const customHours = Math.max(0.5, Number(g.durationHours) || 3);
+      const expTimestamp = Date.now() + Math.round(customHours * 60 * 60 * 1000);
+      state.vipClients[g.idx].vipGift = {
+        type: finalType,
+        value: finalVal,
+        message: g.message || '¡Premio Especial VIP RB Boutique!',
+        used: false,
+        notified: false,
+        savedForLater: false,
+        isWheel: isWheel,
+        spun: !isWheel,
+        durationHours: customHours,
+        createdAt: Date.now(),
+        expiresAt: expTimestamp
+      };
+      saveStored('rb_boutique_vip_clients', state.vipClients);
+      if (state.currentUser && state.currentUser.id === state.vipClients[g.idx].id) {
+        state.currentUser = state.vipClients[g.idx];
+        saveStored('rb_boutique_current_user', state.currentUser);
+        state.showGiftCelebration = true;
+      }
+      state.vipGiftModal = null;
+      showToast(isWheel ? `🎡 Ruleta VIP (${customHours}h) enviada a ${g.clientName}` : `🎁 Cupón de ${customHours}h enviado a ${g.clientName}`);
       renderApp();
     };
 
@@ -986,7 +1024,7 @@
               ${!state.showGoogleFormInWelcome ? `
                 <div class="text-center space-y-2 mb-1">
                   <span class="inline-block px-4 py-1.5 rounded-full bg-pink-600/20 border border-pink-500/40 text-pink-300 text-[11px] font-black uppercase tracking-wider">✨ CLUB VIP • OBTÉN 10% OFF EN AUTOMÁTICO</span>
-                  <p class="text-xs text-zinc-300">Regístrate gratis para desbloquear tu 10% de descuento permanente y regalos sorpresa.</p>
+                  <p class="text-xs text-zinc-300">Conecta tu cuenta de Google para activar tu 10% de descuento permanente y premios exclusivos.</p>
                 </div>
                 <div class="space-y-3 pt-1">
                   <button onclick="loginWithGoogle()" class="w-full py-4 px-4 rounded-2xl bg-white text-zinc-900 font-black text-sm shadow-xl flex items-center justify-center gap-3 hover:scale-[1.02] transition">
@@ -997,13 +1035,27 @@
                 </div>
               ` : `
                 <form onsubmit="submitCompleteRegistration(event)" class="space-y-3.5 animate-fade">
-                  <div class="flex justify-between items-center mb-1"><span class="text-[11px] text-pink-400 font-black uppercase">Activar o Recuperar Cuenta VIP</span><button type="button" onclick="state.showGoogleFormInWelcome=false; renderApp();" class="text-[10px] bg-white/10 px-2.5 py-1 rounded-lg text-zinc-300 font-bold">Volver</button></div>
-                  <input type="text" value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre y Apellido (Si eres nueva)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
-                  <input type="email" required value="${state.regForm.email}" oninput="state.regForm.email=this.value;" placeholder="Tu Correo de Google (Gmail)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
-                  <input type="tel" value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="WhatsApp (10 dígitos)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
-                  <input type="text" value="${state.regForm.referralCode}" oninput="state.regForm.referralCode=this.value;" placeholder="¿Código de invitación de una amiga? (Opcional)" class="w-full px-4 py-3 rounded-xl bg-pink-900/20 border border-pink-500/50 text-sm text-pink-200 uppercase font-mono" />
-                  <button type="submit" class="w-full py-4 mt-1 rounded-2xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm shadow-lg hover:scale-[1.02] transition">Crear Cuenta y Entrar con 10% OFF</button>
-                  <button type="button" onclick="quickRecoverVipAccount()" class="w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-pink-300 font-bold text-xs transition">🔑 ¿Ya eres VIP? Escribe tu Correo o WhatsApp y toca aquí</button>
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="text-[11px] text-emerald-400 font-black uppercase flex items-center gap-1">✓ Google Conectado • Paso 2 de 2</span>
+                    <button type="button" onclick="state.showGoogleFormInWelcome=false; renderApp();" class="text-[10px] bg-white/10 px-2.5 py-1 rounded-lg text-zinc-300 font-bold">Cambiar cuenta</button>
+                  </div>
+                  <div class="px-3.5 py-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-200 flex items-center justify-between">
+                    <span class="truncate font-bold">✉️ ${state.regForm.email}</span>
+                    <span class="text-[9px] bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-300 font-black uppercase shrink-0">Verificado</span>
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Tu Nombre y Apellido</label>
+                    <input type="text" required value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Escribe tu nombre y apellido" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Tu Número de WhatsApp (10 dígitos)</label>
+                    <input type="tel" required value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="Ej. 9991234567" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-pink-400 uppercase block mb-1">Código de Referido (Opcional)</label>
+                    <input type="text" value="${state.regForm.referralCode}" oninput="state.regForm.referralCode=this.value;" placeholder="¿Te invitó una amiga? Escribe su código (Opcional)" class="w-full px-4 py-3 rounded-xl bg-pink-900/20 border border-pink-500/50 text-sm text-pink-200 uppercase font-mono" />
+                  </div>
+                  <button type="submit" class="w-full py-4 mt-1 rounded-2xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm shadow-lg hover:scale-[1.02] transition">Finalizar y Activar 10% OFF VIP</button>
                 </form>
               `}
             </div>
@@ -1026,151 +1078,320 @@
       const bagCount = state.customerCart.reduce((a, b) => a + b.qty, 0);
       const isGuest = state.authStatus === 'guest';
       const userFavs = state.products.filter(p => state.wishlist.includes(p.id));
+      const userOrders = state.currentUser ? state.salesHistory.filter(s => s.customer && s.customer.includes(state.currentUser.name)) : [];
+      const hasActiveCoupon = state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift);
 
       return `
         <div class="min-h-screen bg-zinc-50 pb-24 overflow-x-hidden">
           <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-zinc-200">
-            ${isGuest ? `<div class="bg-black text-pink-400 px-3 py-2 text-center text-[11px] font-bold">Modo Invitado • <button onclick="state.showAuthRegisterModal=true; renderApp();" class="underline text-white font-black ml-1">Regístrate aquí para activar 10% OFF VIP</button></div>` : `<div class="bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white px-3 py-1.5 text-center text-[10px] font-bold tracking-wide">✨ <span class="text-pink-400 font-black">MIEMBRO VIP ACTIVO:</span> 10% OFF automático en tu carrito</div>`}
+            ${isGuest ? `<div class="bg-black text-pink-400 px-3 py-2 text-center text-[11px] font-bold">Modo Invitado • <button onclick="loginWithGoogle()" class="underline text-white font-black ml-1">Conecta tu Google aquí para activar 10% OFF VIP</button></div>` : `<div class="bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white px-3 py-1.5 text-center text-[10px] font-bold tracking-wide">✨ <span class="text-pink-400 font-black">MIEMBRO VIP ACTIVO:</span> 10% OFF automático en tu carrito</div>`}
             <div class="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between">
               <button onclick="handleSecretLogoTap()" class="text-left flex items-center gap-2 focus:outline-none">
                 <span class="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center font-black text-xl shadow">RB</span>
                 <div><span class="font-black text-xl text-black block leading-none">RB</span><span class="block text-[9px] font-extrabold text-pink-600 tracking-wider">BOUTIQUE</span></div>
               </button>
               <div class="flex items-center gap-1.5 shrink-0">
-                <button onclick="state.clientBottomTab='profile'; renderApp();" class="relative p-2 rounded-full hover:bg-zinc-100"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>${state.wishlist.length > 0 ? `<span class="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">${state.wishlist.length}</span>` : ''}</button>
-                <button onclick="state.isBagOpen=true; renderApp();" class="relative p-2 rounded-full hover:bg-zinc-100"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>${bagCount > 0 ? `<span class="absolute top-1 right-1 w-4 h-4 rounded-full bg-black text-white text-[9px] font-black flex items-center justify-center">${bagCount}</span>` : ''}</button>
+                <button onclick="state.clientBottomTab='wishlist'; renderApp();" class="relative p-2.5 rounded-full hover:bg-zinc-100 transition ${state.clientBottomTab === 'wishlist' ? 'bg-rose-50 text-rose-600' : 'text-zinc-800'}" title="Mis Favoritos">
+                  <svg class="w-6 h-6 ${state.clientBottomTab === 'wishlist' ? 'fill-rose-500 text-rose-500' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
+                  ${state.wishlist.length > 0 ? `<span class="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow">${state.wishlist.length}</span>` : ''}
+                </button>
               </div>
             </div>
           </header>
 
-          ${state.clientBottomTab === 'profile' ? `
-            <main class="max-w-3xl mx-auto px-4 py-6 space-y-5 animate-fade">
-              ${isGuest ? `
-                <div class="p-6 text-center bg-zinc-900 text-white rounded-3xl space-y-3 shadow-xl">
-                  <h2 class="font-black text-lg">Activa tu Cuenta VIP</h2>
-                  <p class="text-xs text-zinc-300">Guarda tus prendas favoritas, recibe regalos exclusivos y obtén <strong>10% de descuento automático</strong> en todas tus compras.</p>
-                  <button onclick="loginWithGoogle()" class="w-full py-3.5 rounded-xl bg-pink-600 hover:bg-pink-500 font-black text-sm">Registrarme con Google (10% OFF)</button>
+          ${state.clientBottomTab === 'wishlist' ? `
+            <main class="max-w-5xl mx-auto px-4 py-6 space-y-5 animate-fade">
+              <div class="flex items-center justify-between border-b border-zinc-200 pb-3">
+                <div class="flex items-center gap-2">
+                  <span class="w-9 h-9 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-black">❤️</span>
+                  <div>
+                    <h2 class="text-base font-black uppercase tracking-wider text-zinc-900">Mis Favoritos por Sección</h2>
+                    <p class="text-[11px] text-zinc-500">${userFavs.length} prenda(s) guardada(s)</p>
+                  </div>
+                </div>
+                <button onclick="state.clientBottomTab='home'; renderApp();" class="px-3.5 py-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold">Seguir viendo ropa →</button>
+              </div>
+
+              ${userFavs.length === 0 ? `
+                <div class="p-12 text-center bg-white rounded-3xl border border-zinc-200 space-y-3 shadow-sm">
+                  <div class="w-14 h-14 rounded-full bg-rose-50 text-rose-400 flex items-center justify-center mx-auto text-2xl">❤️</div>
+                  <h3 class="font-black text-sm text-zinc-800">Tu lista de favoritos está vacía</h3>
+                  <p class="text-xs text-zinc-500 max-w-xs mx-auto">Toca el corazón en las prendas que más te gusten del catálogo para guardarlas aquí organizadas por sección.</p>
+                  <button onclick="state.clientBottomTab='home'; renderApp();" class="mt-2 px-5 py-2.5 rounded-xl bg-black text-white text-xs font-black">Explorar Catálogo</button>
                 </div>
               ` : `
-                <div class="p-5 rounded-3xl bg-gradient-to-r from-zinc-900 via-black to-pink-950 text-white flex flex-col justify-between shadow-xl gap-4">
-                  <div class="flex items-center gap-3"><div class="w-14 h-14 rounded-full bg-pink-600 font-black text-xl flex items-center justify-center shadow-lg border-2 border-pink-400/50">${state.currentUser.name.charAt(0)}</div><div><h2 class="font-black text-lg">${state.currentUser.name}</h2><span class="inline-block px-2 py-0.5 mt-1 rounded bg-pink-500/20 text-pink-300 text-[10px] font-bold uppercase border border-pink-500/40">Cliente VIP 10% OFF</span></div></div>
-                  <div class="grid grid-cols-2 gap-3">
-                    <button onclick="document.getElementById('perfil-edit').classList.toggle('hidden')" class="px-3 py-2 rounded-xl bg-white/10 text-xs font-bold hover:bg-white/20 text-center">Editar Perfil / Dirección</button>
-                    <button onclick="logoutApp()" class="px-3 py-2 rounded-xl bg-rose-600/20 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-600/40 text-center">Cerrar Sesión</button>
-                  </div>
-                </div>
-
-                <div id="perfil-edit" class="hidden space-y-4 animate-fade">
-                  <div class="p-5 rounded-3xl bg-white border border-zinc-200 shadow-sm space-y-3">
-                    <h3 class="font-black text-sm text-zinc-900 border-b pb-2">👤 Mis Datos Personales</h3>
-                    <div><label class="text-[10px] font-bold text-zinc-500 uppercase">Nombre Completo</label><input type="text" value="${state.currentUser.name}" onchange="updateProfileData('name', this.value)" class="w-full p-2.5 rounded-xl border border-zinc-200 text-sm font-bold mt-1" /></div>
-                    <div><label class="text-[10px] font-bold text-zinc-500 uppercase">WhatsApp</label><input type="tel" value="${state.currentUser.phone}" onchange="updateProfileData('phone', this.value)" class="w-full p-2.5 rounded-xl border border-zinc-200 text-sm mt-1" /></div>
-                  </div>
-                  <div class="p-5 rounded-3xl bg-white border border-zinc-200 shadow-sm space-y-3">
-                    <h3 class="font-black text-sm text-zinc-900 border-b pb-2">📍 Mi Dirección de Envío Predeterminada</h3>
-                    <p class="text-[10px] text-zinc-500">Se llenará sola cuando vayas al carrito a comprar.</p>
-                    <div><label class="text-[10px] font-bold text-zinc-500 uppercase">Calle, Número, Colonia, Referencias</label><input type="text" value="${state.currentUser.address}" onchange="updateProfileData('address', this.value)" placeholder="Ingresa tu dirección..." class="w-full p-2.5 rounded-xl border border-zinc-200 text-sm mt-1" /></div>
-                    <div><label class="text-[10px] font-bold text-zinc-500 uppercase">Link de Google Maps</label><input type="url" value="${state.currentUser.mapsUrl}" onchange="updateProfileData('mapsUrl', this.value)" placeholder="Pega aquí el enlace de maps..." class="w-full p-2.5 rounded-xl border border-zinc-200 text-sm mt-1 text-sky-600" /></div>
-                  </div>
-                </div>
-
-                <div class="p-5 rounded-3xl bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 shadow-sm relative overflow-hidden">
-                  <h3 class="font-black text-sm text-pink-900 mb-2">🎁 Gana descuentos exclusivos invitando amig@s</h3>
-                  <p class="text-[11px] text-pink-700/80 mb-3 leading-relaxed">Comparte tu código con tus amigas. Cuando ellas hagan su primera compra exitosa, tu barra avanzará. ¡Llega a 3 o 5 compras y gana premios automáticos en tu carrito!</p>
-                  <div class="flex items-center gap-2 mb-3">
-                    <span class="text-xs font-bold text-zinc-500">Tu código:</span>
-                    <span class="font-mono font-black text-lg bg-white px-3 py-1 rounded-xl text-pink-600 border border-pink-200">${state.currentUser.referralCode}</span>
-                    <button onclick="copyTextSafe('${state.currentUser.referralCode}', 'Código de referido copiado')" class="p-2 bg-pink-100 text-pink-600 rounded-lg hover:bg-pink-200">📋</button>
-                  </div>
-                  <div class="bg-white p-3 rounded-2xl border border-pink-100">
-                    <div class="flex justify-between text-[10px] font-black uppercase text-pink-400 mb-1"><span>Progreso Actual</span><span>${state.currentUser.successfulReferrals} Compras</span></div>
-                    <div class="w-full h-3 bg-pink-50 rounded-full overflow-hidden border border-pink-100"><div class="h-full bg-gradient-to-r from-pink-400 to-rose-500" style="width: ${Math.min((state.currentUser.successfulReferrals / 5) * 100, 100)}%"></div></div>
-                    <div class="flex justify-between text-[9px] font-bold text-zinc-400 mt-1"><span>0</span><span>3 compras (10% OFF)</span><span>5 compras (15% OFF)</span></div>
-                  </div>
-                </div>
-
-                ${state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift) ? `
-                  <div class="p-5 rounded-3xl bg-zinc-900 text-white border-2 border-pink-500 shadow-xl space-y-3 animate-fade">
-                    <div class="flex items-center justify-between">
-                      <span class="px-2.5 py-1 rounded-full bg-pink-600 text-white text-[10px] font-black uppercase">🎟️ Mi Cupón VIP Activo</span>
-                      <span class="px-3 py-1 rounded-xl bg-rose-600/30 border border-rose-500 text-rose-300 font-mono font-black text-xs flex items-center gap-1">
-                        ⏳ Vence en: <span class="vip-countdown-timer">${formatRemainingTime(state.currentUser.vipGift.expiresAt)}</span>
-                      </span>
-                    </div>
-                    <div class="flex items-center justify-between gap-3">
-                      <div>
-                        <p class="text-lg font-black text-pink-400">${state.currentUser.vipGift.type === 'percent' ? state.currentUser.vipGift.value + '% OFF ADICIONAL' : '$' + state.currentUser.vipGift.value + ' MXN DE DESCUENTO'}</p>
-                        <p class="text-xs text-zinc-300">${state.currentUser.vipGift.message}</p>
+                <div class="space-y-6">
+                  ${Object.entries(userFavs.reduce((acc, item) => {
+                    const sectionTitle = item.department ? `${item.department} • ${item.category}` : (item.category || 'General');
+                    if (!acc[sectionTitle]) acc[sectionTitle] = [];
+                    acc[sectionTitle].push(item);
+                    return acc;
+                  }, {})).map(([secName, secItems]) => `
+                    <div class="bg-white p-4 rounded-3xl border border-zinc-200 shadow-sm space-y-3.5">
+                      <div class="flex items-center justify-between border-b border-zinc-100 pb-2.5">
+                        <span class="text-xs font-black uppercase tracking-wider text-zinc-900 flex items-center gap-1.5">✨ ${secName}</span>
+                        <span class="text-[10px] font-black text-pink-600 bg-pink-50 px-2.5 py-0.5 rounded-full border border-pink-200">${secItems.length} prenda(s)</span>
                       </div>
-                      ${state.currentUser.vipGift.isWheel && !state.currentUser.vipGift.spun ? `
-                        <button onclick="state.showGiftCelebration=true; renderApp();" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-black text-xs shrink-0 shadow-lg">🎡 Girar Ruleta</button>
-                      ` : state.currentUser.vipGift.savedForLater ? `
-                        <button onclick="applyVipCouponNow()" class="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-xs shrink-0 shadow-lg">🛒 Aplicar al Carrito</button>
-                      ` : `
-                        <span class="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-black text-[10px] shrink-0">✓ Aplicado en Carrito</span>
-                      `}
+                      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
+                        ${secItems.map(p => `
+                          <div class="border border-zinc-200 rounded-2xl overflow-hidden relative cursor-pointer group hover:border-black transition flex flex-col justify-between bg-white" onclick="openProductDetail('${p.id}')">
+                            <div>
+                              <div class="relative aspect-[3/4] bg-zinc-100 overflow-hidden">
+                                <img src="${p.image}" class="w-full h-full object-cover group-hover:scale-105 transition duration-500"/>
+                                <button onclick="event.stopPropagation(); toggleWishlist('${p.id}')" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 shadow flex items-center justify-center hover:scale-110 transition" title="Quitar de favoritos">
+                                  <svg class="w-4 h-4 text-rose-500 fill-rose-500" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                                </button>
+                              </div>
+                              <div class="p-2.5">
+                                <p class="text-xs font-bold text-zinc-800 line-clamp-1">${p.name}</p>
+                                <p class="text-sm font-black text-rose-600 mt-0.5">$${p.price} <span class="text-[9px] text-zinc-400 font-normal">MXN</span></p>
+                              </div>
+                            </div>
+                            <div class="px-2.5 pb-2.5">
+                              <button class="w-full py-2 rounded-xl bg-black hover:bg-pink-600 text-white text-[11px] font-bold transition">🛒 Ver Tallas</button>
+                            </div>
+                          </div>
+                        `).join('')}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </main>
+          ` : state.clientBottomTab === 'profile' ? `
+            <main class="max-w-xl mx-auto px-4 py-6 space-y-4 animate-fade">
+              ${isGuest ? `
+                <div class="p-7 text-center bg-zinc-900 text-white rounded-3xl space-y-4 shadow-xl">
+                  <div class="w-16 h-16 rounded-2xl bg-black border-2 border-pink-500 flex items-center justify-center font-black text-2xl mx-auto">RB</div>
+                  <h2 class="font-black text-lg">Inicia Sesión en tu Cuenta VIP</h2>
+                  <p class="text-xs text-zinc-300 leading-relaxed">Conecta tu cuenta oficial de Google para obtener <strong>10% de descuento automático</strong>, gestionar tus direcciones, ver tus cupones y ganar premios por invitar amigas.</p>
+                  <button onclick="loginWithGoogle()" class="w-full py-4 px-4 rounded-2xl bg-white text-zinc-900 font-black text-sm shadow-xl flex items-center justify-center gap-3 hover:scale-[1.01] transition">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.9C3.5 21.4 7.4 24 12 24z"/></svg>
+                    <span>Continuar con Google (10% OFF)</span>
+                  </button>
+                </div>
+              ` : `
+                <!-- TARJETA SUPERIOR DE MEMBRESÍA VIP ESTILO SHEIN / AMAZON -->
+                <div class="p-5 rounded-3xl bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white shadow-xl flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-3.5 min-w-0">
+                    <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 font-black text-2xl flex items-center justify-center shadow-lg border border-pink-300/40 shrink-0">${state.currentUser.name.charAt(0)}</div>
+                    <div class="min-w-0">
+                      <h2 class="font-black text-base sm:text-lg truncate">${state.currentUser.name}</h2>
+                      <p class="text-[11px] text-zinc-400 truncate">${state.currentUser.email}</p>
+                      <span class="inline-block px-2.5 py-0.5 mt-1 rounded-full bg-pink-500/20 text-pink-300 text-[10px] font-black uppercase border border-pink-500/40">👑 Miembro VIP • 10% OFF Activo</span>
                     </div>
                   </div>
-                ` : ''}
+                </div>
 
-                <div class="p-5 rounded-3xl bg-white border border-zinc-200 shadow-sm space-y-4">
-                  <div class="flex items-center justify-between">
-                    <h3 class="font-black text-sm">❤️ Mis Favoritos por Departamento</h3>
-                    <span class="text-[11px] font-bold text-pink-600">${userFavs.length} prenda(s)</span>
-                  </div>
-                  ${userFavs.length === 0 ? `<p class="text-xs text-zinc-500 text-center py-6">Aún no guardas prendas favoritas. Toca el corazón ❤️ en cualquier prenda del catálogo.</p>` : `
-                    <div class="space-y-5">
-                      ${Object.entries(userFavs.reduce((acc, item) => {
-                        const deptKey = item.department ? `${item.department} • ${item.category}` : (item.category || 'General');
-                        if (!acc[deptKey]) acc[deptKey] = [];
-                        acc[deptKey].push(item);
-                        return acc;
-                      }, {})).map(([deptName, deptItems]) => `
-                        <div class="space-y-2.5">
-                          <div class="flex items-center justify-between bg-zinc-100 px-3 py-1.5 rounded-xl border border-zinc-200">
-                            <span class="text-[11px] font-black uppercase tracking-wider text-zinc-800">✨ ${deptName}</span>
-                            <span class="text-[10px] font-bold text-pink-600 bg-white px-2 py-0.5 rounded-full border border-pink-200">${deptItems.length}</span>
+                <!-- MENÚ EN LISTA ORDENADA Y PREMIUM ESTILO AMAZON / SHEIN -->
+                <div class="bg-white rounded-3xl border border-zinc-200/90 shadow-sm divide-y divide-zinc-100 overflow-hidden">
+
+                  <!-- 1. MIS CUPONES Y RULETA VIP -->
+                  <div>
+                    <button onclick="toggleProfileSection('coupons')" class="w-full p-4 flex items-center justify-between hover:bg-zinc-50 transition text-left">
+                      <div class="flex items-center gap-3.5">
+                        <div class="w-10 h-10 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center text-lg shrink-0">🎟️</div>
+                        <div>
+                          <div class="flex items-center gap-2">
+                            <span class="font-black text-sm text-zinc-900">Mis Cupones y Recompensas</span>
+                            ${hasActiveCoupon ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">1 Activo</span>` : ''}
                           </div>
-                          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            ${deptItems.map(p => `
-                              <div class="border border-zinc-200 rounded-2xl overflow-hidden relative cursor-pointer group hover:border-black transition flex flex-col justify-between" onclick="openProductDetail('${p.id}')">
-                                <div>
-                                  <img src="${p.image}" class="w-full h-36 object-cover bg-zinc-50"/>
-                                  <button onclick="event.stopPropagation(); toggleWishlist('${p.id}')" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/90 shadow flex items-center justify-center"><svg class="w-3.5 h-3.5 text-rose-500 fill-rose-500" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>
-                                  <div class="p-2.5">
-                                    <p class="text-[11px] font-bold text-zinc-800 line-clamp-1">${p.name}</p>
-                                    <p class="text-xs font-black text-pink-600 mt-0.5">$${p.price} MXN</p>
-                                  </div>
-                                </div>
-                                <div class="px-2.5 pb-2.5">
-                                  <button class="w-full py-1.5 rounded-lg bg-black text-white text-[10px] font-bold">🛒 Ver Tallas</button>
-                                </div>
+                          <p class="text-[11px] text-zinc-500">${hasActiveCoupon ? 'Tienes un beneficio con reloj activo listo para usar' : 'Consulta tus cupones y giros de ruleta'}</p>
+                        </div>
+                      </div>
+                      <span class="text-zinc-400 font-bold text-sm">${state.profileActiveSection === 'coupons' ? '▲' : '▼'}</span>
+                    </button>
+                    ${(state.profileActiveSection === 'coupons' || hasActiveCoupon) ? `
+                      <div class="px-4 pb-4 pt-1 bg-zinc-50/70 animate-fade">
+                        ${hasActiveCoupon ? `
+                          <div class="p-4 rounded-2xl bg-zinc-900 text-white border border-pink-500 shadow-lg space-y-3">
+                            <div class="flex items-center justify-between">
+                              <span class="px-2.5 py-0.5 rounded-full bg-pink-600 text-white text-[10px] font-black uppercase">🎁 Cupón Exclusivo</span>
+                              <span class="px-2.5 py-1 rounded-lg bg-rose-600/30 border border-rose-500 text-rose-300 font-mono font-black text-xs">
+                                ⏳ <span class="vip-countdown-timer">${formatRemainingTime(state.currentUser.vipGift.expiresAt)}</span>
+                              </span>
+                            </div>
+                            <div class="flex items-center justify-between gap-3">
+                              <div>
+                                <p class="text-base font-black text-pink-400">${state.currentUser.vipGift.type === 'percent' ? state.currentUser.vipGift.value + '% OFF ADICIONAL' : '$' + state.currentUser.vipGift.value + ' MXN EN EFECTIVO'}</p>
+                                <p class="text-xs text-zinc-300 mt-0.5">${state.currentUser.vipGift.message}</p>
                               </div>
-                            `).join('')}
+                              ${state.currentUser.vipGift.isWheel && !state.currentUser.vipGift.spun ? `
+                                <button onclick="state.showGiftCelebration=true; renderApp();" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-black text-xs shrink-0 shadow">🎡 Girar</button>
+                              ` : state.currentUser.vipGift.savedForLater ? `
+                                <button onclick="applyVipCouponNow()" class="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-xs shrink-0 shadow">🛒 Usar Ahora</button>
+                              ` : `
+                                <span class="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-black text-[10px] shrink-0">✓ En Carrito</span>
+                              `}
+                            </div>
+                          </div>
+                        ` : `
+                          <p class="text-xs text-zinc-500 text-center py-3">Por el momento no tienes cupones adicionales. ¡Tu <strong>10% OFF VIP permanente</strong> siempre está activo en tu carrito!</p>
+                        `}
+                      </div>
+                    ` : ''}
+                  </div>
+
+                  <!-- 2. MIS COMPRAS, PEDIDOS Y APARTADOS -->
+                  <div>
+                    <button onclick="toggleProfileSection('orders')" class="w-full p-4 flex items-center justify-between hover:bg-zinc-50 transition text-left">
+                      <div class="flex items-center gap-3.5">
+                        <div class="w-10 h-10 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center text-lg shrink-0">📦</div>
+                        <div>
+                          <div class="flex items-center gap-2">
+                            <span class="font-black text-sm text-zinc-900">Mis Compras y Apartados</span>
+                            <span class="px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700 text-[10px] font-black">${userOrders.length}</span>
+                          </div>
+                          <p class="text-[11px] text-zinc-500">Historial de pedidos, folios y estatus de entrega</p>
+                        </div>
+                      </div>
+                      <span class="text-zinc-400 font-bold text-sm">${state.profileActiveSection === 'orders' ? '▲' : '▼'}</span>
+                    </button>
+                    ${state.profileActiveSection === 'orders' ? `
+                      <div class="px-4 pb-4 pt-1 bg-zinc-50/70 space-y-2.5 animate-fade">
+                        ${userOrders.length === 0 ? `<p class="text-xs text-zinc-500 text-center py-4">Aún no tienes compras registradas.</p>` : userOrders.slice(0, 8).map(ord => `
+                          <div class="p-3.5 bg-white rounded-2xl border border-zinc-200 flex justify-between text-xs items-center shadow-sm">
+                            <div>
+                              <span class="font-mono font-black text-pink-600">${ord.id}</span>
+                              <p class="text-zinc-600 font-bold mt-0.5">${ord.type}</p>
+                              <span class="text-[10px] text-zinc-400">${ord.time}</span>
+                            </div>
+                            <div class="text-right">
+                              <p class="font-black text-sm text-zinc-900">$${ord.total} MXN</p>
+                              <span class="inline-block mt-1 text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase">${ord.status}</span>
+                            </div>
+                          </div>
+                        `).join('')}
+                      </div>
+                    ` : ''}
+                  </div>
+
+                  <!-- 3. CÓDIGO DE REFERIDO / INVITACIÓN -->
+                  <div>
+                    <button onclick="toggleProfileSection('referrals')" class="w-full p-4 flex items-center justify-between hover:bg-zinc-50 transition text-left">
+                      <div class="flex items-center gap-3.5">
+                        <div class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg shrink-0">🎁</div>
+                        <div>
+                          <div class="flex items-center gap-2">
+                            <span class="font-black text-sm text-zinc-900">Mi Código de Invitación (Referidos)</span>
+                            <span class="px-2 py-0.5 rounded-full bg-pink-50 text-pink-600 text-[10px] font-black border border-pink-200">${state.currentUser.successfulReferrals || 0}/5</span>
+                          </div>
+                          <p class="text-[11px] text-zinc-500">Gana 10% (3 amigas) y 15% OFF extra (5 amigas)</p>
+                        </div>
+                      </div>
+                      <span class="text-zinc-400 font-bold text-sm">${state.profileActiveSection === 'referrals' ? '▲' : '▼'}</span>
+                    </button>
+                    ${state.profileActiveSection === 'referrals' ? `
+                      <div class="px-4 pb-4 pt-1 bg-zinc-50/70 animate-fade">
+                        <div class="p-4 rounded-2xl bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 space-y-3">
+                          <p class="text-[11px] text-pink-900 leading-relaxed">Comparte tu código personal con tus amigas. Cuando ellas hagan su primera compra, tu barra avanzará automáticamente:</p>
+                          <div class="flex items-center justify-between bg-white px-3.5 py-2.5 rounded-xl border border-pink-200">
+                            <div>
+                              <span class="text-[9px] font-bold text-zinc-400 uppercase block">Tu código personal</span>
+                              <span class="font-mono font-black text-base text-pink-600">${state.currentUser.referralCode}</span>
+                            </div>
+                            <button onclick="copyTextSafe('${state.currentUser.referralCode}', '📋 Código de invitación copiado')" class="px-3.5 py-2 bg-pink-600 text-white rounded-xl text-xs font-black shadow">📋 Copiar</button>
+                          </div>
+                          <div class="bg-white p-3 rounded-xl border border-pink-100">
+                            <div class="flex justify-between text-[10px] font-black uppercase text-pink-600 mb-1"><span>Tu Progreso</span><span>${state.currentUser.successfulReferrals || 0} Compras</span></div>
+                            <div class="w-full h-2.5 bg-pink-50 rounded-full overflow-hidden border border-pink-100"><div class="h-full bg-gradient-to-r from-pink-500 to-rose-500" style="width: ${Math.min(((state.currentUser.successfulReferrals || 0) / 5) * 100, 100)}%"></div></div>
+                            <div class="flex justify-between text-[9px] font-bold text-zinc-500 mt-1.5"><span>0</span><span>3 compras (+10% OFF)</span><span>5 compras (+15% OFF)</span></div>
                           </div>
                         </div>
-                      `).join('')}
-                    </div>
-                  `}
-                </div>
-
-                <div class="p-5 rounded-3xl bg-white border border-zinc-200 shadow-sm">
-                  <h3 class="font-black text-sm mb-4">📦 Mis Pedidos y Apartados</h3>
-                  ${state.salesHistory.filter(s => s.customer.includes(state.currentUser.name)).length === 0 ? `<p class="text-xs text-zinc-500 text-center py-4">No tienes pedidos recientes.</p>` : `
-                    <div class="space-y-3">${state.salesHistory.filter(s => s.customer.includes(state.currentUser.name)).slice(0,5).map(ord => `
-                      <div class="p-3 bg-zinc-50 rounded-xl border border-zinc-100 flex justify-between text-xs items-center">
-                        <div><span class="font-black text-pink-600">${ord.id}</span><p class="text-zinc-500 mt-0.5">${ord.time} • ${ord.type}</p></div>
-                        <div class="text-right"><p class="font-black text-sm">$${ord.total} MXN</p><span class="inline-block mt-1 text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase">${ord.status}</span></div>
                       </div>
-                    `).join('')}</div>
-                  `}
+                    ` : ''}
+                  </div>
+
+                  <!-- 4. MIS DATOS PERSONALES -->
+                  <div>
+                    <button onclick="toggleProfileSection('personal')" class="w-full p-4 flex items-center justify-between hover:bg-zinc-50 transition text-left">
+                      <div class="flex items-center gap-3.5">
+                        <div class="w-10 h-10 rounded-2xl bg-zinc-100 text-zinc-800 flex items-center justify-center text-lg shrink-0">👤</div>
+                        <div>
+                          <span class="font-black text-sm text-zinc-900 block">Mis Datos Personales</span>
+                          <p class="text-[11px] text-zinc-500">${state.currentUser.name} • 📱 ${state.currentUser.phone}</p>
+                        </div>
+                      </div>
+                      <span class="text-zinc-400 font-bold text-sm">${state.profileActiveSection === 'personal' ? '▲' : '▼'}</span>
+                    </button>
+                    ${state.profileActiveSection === 'personal' ? `
+                      <div class="px-4 pb-4 pt-1 bg-zinc-50/70 space-y-3 animate-fade">
+                        <div class="bg-white p-4 rounded-2xl border border-zinc-200 space-y-3">
+                          <div>
+                            <label class="text-[10px] font-bold text-zinc-500 uppercase">Nombre y Apellido</label>
+                            <input type="text" value="${state.currentUser.name}" onchange="updateProfileData('name', this.value); showToast('✅ Nombre actualizado');" class="w-full p-2.5 rounded-xl border border-zinc-200 text-sm font-bold mt-1" />
+                          </div>
+                          <div>
+                            <label class="text-[10px] font-bold text-zinc-500 uppercase">Número de WhatsApp (10 dígitos)</label>
+                            <input type="tel" value="${state.currentUser.phone}" onchange="updateProfileData('phone', this.value); showToast('✅ WhatsApp actualizado');" class="w-full p-2.5 rounded-xl border border-zinc-200 text-sm font-bold mt-1" />
+                          </div>
+                          <div>
+                            <label class="text-[10px] font-bold text-zinc-400 uppercase">Correo Google Vinculado</label>
+                            <input type="email" disabled value="${state.currentUser.email}" class="w-full p-2.5 rounded-xl border border-zinc-100 bg-zinc-50 text-zinc-400 text-xs mt-1" />
+                          </div>
+                        </div>
+                      </div>
+                    ` : ''}
+                  </div>
+
+                  <!-- 5. MIS DIRECCIONES DE ENVÍO -->
+                  <div>
+                    <button onclick="toggleProfileSection('address')" class="w-full p-4 flex items-center justify-between hover:bg-zinc-50 transition text-left">
+                      <div class="flex items-center gap-3.5">
+                        <div class="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg shrink-0">📍</div>
+                        <div class="min-w-0">
+                          <span class="font-black text-sm text-zinc-900 block">Mis Direcciones de Envío</span>
+                          <p class="text-[11px] text-zinc-500 truncate">${state.currentUser.address ? state.currentUser.address : 'Agrega tu dirección para autocompletar en el Carrito'}</p>
+                        </div>
+                      </div>
+                      <span class="text-zinc-400 font-bold text-sm">${state.profileActiveSection === 'address' ? '▲' : '▼'}</span>
+                    </button>
+                    ${state.profileActiveSection === 'address' ? `
+                      <div class="px-4 pb-4 pt-1 bg-zinc-50/70 animate-fade">
+                        <div class="bg-white p-4 rounded-2xl border border-zinc-200 space-y-3">
+                          <p class="text-[11px] text-zinc-500">Se llenará automáticamente cada vez que pidas envío a domicilio en tu Carrito.</p>
+                          <div>
+                            <label class="text-[10px] font-bold text-zinc-500 uppercase">Calle, Número, Colonia y Referencias</label>
+                            <input type="text" value="${state.currentUser.address || ''}" onchange="updateProfileData('address', this.value); showToast('📍 Dirección guardada');" placeholder="Ej. Calle 60 #123 x 45 y 47, Col. Centro..." class="w-full p-2.5 rounded-xl border border-zinc-200 text-sm mt-1" />
+                          </div>
+                          <div>
+                            <label class="text-[10px] font-bold text-zinc-500 uppercase">Enlace de Ubicación Google Maps (Opcional)</label>
+                            <input type="url" value="${state.currentUser.mapsUrl || ''}" onchange="updateProfileData('mapsUrl', this.value); showToast('🗺️ Link de Maps guardado');" placeholder="https://maps.google.com/..." class="w-full p-2.5 rounded-xl border border-zinc-200 text-sm mt-1 text-sky-600" />
+                          </div>
+                        </div>
+                      </div>
+                    ` : ''}
+                  </div>
+
+                  <!-- 6. SOPORTE Y ATENCIÓN A CLIENTES VIP -->
+                  <div>
+                    <button onclick="toggleProfileSection('support')" class="w-full p-4 flex items-center justify-between hover:bg-zinc-50 transition text-left">
+                      <div class="flex items-center gap-3.5">
+                        <div class="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center text-lg shrink-0">💬</div>
+                        <div>
+                          <span class="font-black text-sm text-zinc-900 block">Soporte y Atención VIP</span>
+                          <p class="text-[11px] text-zinc-500">Envía dudas o comentarios directo a RB Boutique</p>
+                        </div>
+                      </div>
+                      <span class="text-zinc-400 font-bold text-sm">${state.profileActiveSection === 'support' ? '▲' : '▼'}</span>
+                    </button>
+                    ${state.profileActiveSection === 'support' ? `
+                      <div class="px-4 pb-4 pt-1 bg-zinc-50/70 animate-fade">
+                        <div class="bg-white p-4 rounded-2xl border border-zinc-200 space-y-3">
+                          <textarea id="support-msg" placeholder="Escribe tu duda o comentario sobre tu pedido..." class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs min-h-[80px] focus:outline-none focus:border-pink-500"></textarea>
+                          <button onclick="const msg=document.getElementById('support-msg').value; if(msg.trim()){ state.supportTickets=[{id: 'REP-'+Date.now(), customerName: state.currentUser.name, email: state.currentUser.email, phone: state.currentUser.phone, date: new Date().toLocaleString(), message: msg, status: 'Pendiente'}, ...state.supportTickets]; saveStored('rb_boutique_tickets', state.supportTickets); document.getElementById('support-msg').value=''; showToast('✅ Mensaje enviado a RB Boutique'); renderApp(); } else { showToast('Escribe tu mensaje primero', 'error'); }" class="w-full py-3 rounded-xl bg-black text-white font-bold text-xs shadow hover:bg-zinc-800 transition">Enviar Mensaje</button>
+                        </div>
+                      </div>
+                    ` : ''}
+                  </div>
+
                 </div>
 
-                <div class="p-5 rounded-3xl bg-white border border-zinc-200 shadow-sm">
-                  <h3 class="font-black text-sm mb-2">📥 Soporte y Dudas VIP</h3>
-                  <textarea id="support-msg" placeholder="Escribe tu duda o sugerencia..." class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs mb-3 min-h-[80px] focus:outline-none focus:border-pink-500"></textarea>
-                  <button onclick="const msg=document.getElementById('support-msg').value; if(msg.trim()){ state.supportTickets=[{id: 'REP-'+Date.now(), customerName: state.currentUser.name, email: state.currentUser.email, phone: state.currentUser.phone, date: new Date().toLocaleString(), message: msg, status: 'Pendiente'}, ...state.supportTickets]; saveStored('rb_boutique_tickets', state.supportTickets); document.getElementById('support-msg').value=''; showToast('✅ Tu reporte fue enviado a RB Boutique'); renderApp(); } else { showToast('Escribe tu mensaje primero', 'error'); }" class="w-full py-3 rounded-xl bg-black text-white font-bold text-xs shadow-md hover:bg-zinc-800 transition">Enviar Mensaje Directo</button>
-                </div>
+                <!-- 7. BOTÓN INDEPENDIENTE PARA CERRAR SESIÓN -->
+                <button onclick="logoutApp()" class="w-full p-4 rounded-3xl bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 font-black text-xs shadow-sm flex items-center justify-center gap-2 transition">
+                  <span>🚪</span>
+                  <span>Cerrar Sesión de mi Cuenta VIP</span>
+                </button>
               `}
             </main>
           ` : state.clientBottomTab === 'categories' ? `
@@ -1384,11 +1605,12 @@
                   ${state.vipClients.map((cl, idx) => `
                     <div class="p-5 rounded-3xl bg-zinc-900 border border-zinc-800 flex flex-col justify-between gap-3 text-xs shadow-sm hover:border-pink-500/50 transition">
                       <div>
-                        <div class="flex justify-between items-start gap-2"><h3 class="font-black text-sm text-white">${cl.name}</h3>${cl.vipGift && !cl.vipGift.used ? `<span class="px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 text-[9px] font-black border border-pink-500/30">🎁 ${cl.vipGift.type === 'percent' ? cl.vipGift.value + '% OFF' : '$' + cl.vipGift.value} Activo</span>` : '<span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[9px] font-bold">10% VIP</span>'}</div>
+                        <div class="flex justify-between items-start gap-2"><h3 class="font-black text-sm text-white">${cl.name}</h3>${cl.vipGift && !cl.vipGift.used && !isGiftExpired(cl.vipGift) ? `<span class="px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 text-[9px] font-black border border-pink-500/30">🎁 ${cl.vipGift.type === 'percent' ? cl.vipGift.value + '% OFF' : '$' + cl.vipGift.value} (${cl.vipGift.durationHours || 3}h)</span>` : '<span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[9px] font-bold">10% VIP</span>'}</div>
                         <p class="text-zinc-400 mt-1.5">📱 ${cl.phone} <span class="mx-1">•</span> ✉️ ${cl.email}</p>
+                        ${cl.vipGift && !cl.vipGift.used && !isGiftExpired(cl.vipGift) ? `<p class="text-[10px] text-rose-400 font-mono mt-1">⏳ Tiempo restante: <strong class="vip-countdown-timer">${formatRemainingTime(cl.vipGift.expiresAt)}</strong></p>` : ''}
                       </div>
                       <div class="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800/80">
-                        <button onclick="openVipGiftSender(${idx})" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 font-black text-white shadow-md"><span>🎡</span> Regalo</button>
+                        <button onclick="openVipGiftSender(${idx})" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 font-black text-white shadow-md"><span>🎡</span> Regalo / Tiempo</button>
                         <div class="flex gap-1.5"><button onclick="state.editingClientModal={idx: ${idx}, name: '${cl.name.replace(/'/g, "\\'")}', phone: '${cl.phone}', email: '${cl.email}'}; renderApp();" class="flex-1 py-2.5 rounded-xl bg-zinc-800 text-white font-bold">✏️ Editar</button><button onclick="confirmAction('¿Eliminar cliente?', () => { state.vipClients.splice(${idx}, 1); saveStored('rb_boutique_vip_clients', state.vipClients); showToast('Eliminado'); })" class="px-3 py-2.5 rounded-xl bg-rose-500/20 text-rose-400 font-bold">🗑️</button></div>
                       </div>
                     </div>
@@ -1478,7 +1700,7 @@
             <form onsubmit="submitVipGiftModal(event)" class="bg-zinc-900 border border-pink-500/40 rounded-3xl max-w-md w-full p-6 text-white space-y-4 animate-fade shadow-2xl">
               <div class="flex justify-between items-center border-b border-zinc-800 pb-3">
                 <div>
-                  <span class="text-[10px] font-black text-pink-400 uppercase">🎡 Ruleta y Cupones con Vigencia de 3 Horas</span>
+                  <span class="text-[10px] font-black text-pink-400 uppercase">🎡 Control de Ruleta, Cupones y Horario</span>
                   <h3 class="font-black text-base">Enviar Beneficio a ${g.clientName}</h3>
                 </div>
                 <button type="button" onclick="state.vipGiftModal=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button>
@@ -1491,7 +1713,7 @@
 
               ${g.mode === 'wheel' ? `
                 <div class="space-y-3 text-xs bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
-                  <p class="text-[11px] text-zinc-300 leading-relaxed">La clienta verá en su ruleta premios de <strong>5%, 10%, 15%, 50%, 90% y $150 en efectivo</strong>. Selecciona aquí en qué premio caerá exactamente la aguja cuando ella gire:</p>
+                  <p class="text-[11px] text-zinc-300 leading-relaxed">La clienta verá en su ruleta premios de <strong>5%, 10%, 15%, 50%, 90% y $150 en efectivo</strong>. Selecciona en qué premio caerá la aguja:</p>
                   <div>
                     <label class="block text-pink-400 font-black mb-1.5 uppercase text-[10px]">🎯 Premio Asignado para esta Clienta:</label>
                     <select onchange="state.vipGiftModal.wheelPrize=this.value;" class="w-full p-3 rounded-xl bg-zinc-900 border border-pink-500/50 text-white font-black">
@@ -1511,17 +1733,32 @@
                 </div>
               `}
 
+              <!-- CONTROL DE HORARIO / DURACIÓN DEL CUPÓN CON RELOJ -->
+              <div class="p-3.5 rounded-2xl bg-zinc-950 border border-rose-500/40 space-y-2 text-xs">
+                <label class="block text-rose-400 font-black uppercase text-[10px]">⏳ Duración / Horario del Reloj del Cupón:</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <select onchange="state.vipGiftModal.durationHours=this.value; renderApp();" class="p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">
+                    <option value="1" ${String(g.durationHours)==='1'?'selected':''}>⏱️ 1 Hora</option>
+                    <option value="2" ${String(g.durationHours)==='2'?'selected':''}>⏱️ 2 Horas</option>
+                    <option value="3" ${String(g.durationHours)==='3'?'selected':''}>⏱️ 3 Horas (Recomendado)</option>
+                    <option value="6" ${String(g.durationHours)==='6'?'selected':''}>⏱️ 6 Horas</option>
+                    <option value="12" ${String(g.durationHours)==='12'?'selected':''}>⏱️ 12 Horas</option>
+                    <option value="24" ${String(g.durationHours)==='24'?'selected':''}>⏱️ 24 Horas (1 Día)</option>
+                    <option value="48" ${String(g.durationHours)==='48'?'selected':''}>⏱️ 48 Horas (2 Días)</option>
+                  </select>
+                  <div class="flex items-center bg-zinc-900 border border-zinc-700 rounded-xl px-3">
+                    <input type="number" step="0.5" min="0.5" value="${g.durationHours}" oninput="state.vipGiftModal.durationHours=this.value;" class="w-full bg-transparent text-rose-400 font-black text-center outline-none" />
+                    <span class="text-[10px] text-zinc-400 font-bold ml-1">hrs</span>
+                  </div>
+                </div>
+              </div>
+
               <div class="text-xs">
                 <label class="block text-zinc-400 font-bold mb-1">Mensaje para la Clienta</label>
                 <input type="text" required value="${g.message}" oninput="state.vipGiftModal.message=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
               </div>
 
-              <div class="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-[11px] text-rose-300 font-bold flex items-center gap-2">
-                <span>⏳</span>
-                <span>Vigencia automática de <strong>3 horas</strong> con reloj en cuenta regresiva.</span>
-              </div>
-
-              <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">🚀 Enviar Ahora a ${g.clientName}</button>
+              <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">🚀 Enviar Ahora (${g.durationHours} hrs de vigencia)</button>
             </form>
           </div>
         `;
@@ -1655,14 +1892,35 @@
                 </div>
                 <button onclick="state.showAuthRegisterModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button>
               </div>
-              <form onsubmit="submitCompleteRegistration(event)" class="space-y-3 text-xs">
-                <input type="text" value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre y Apellido (Si eres nueva)" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
-                <input type="email" required value="${state.regForm.email}" oninput="state.regForm.email=this.value;" placeholder="Tu Correo de Google (Gmail)" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
-                <input type="tel" value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="WhatsApp (10 dígitos)" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
-                <input type="text" value="${state.regForm.referralCode}" oninput="state.regForm.referralCode=this.value;" placeholder="¿Código de invitación? (Opcional)" class="w-full px-4 py-3 rounded-xl bg-pink-900/20 border border-pink-500/50 text-pink-200 uppercase font-mono" />
-                <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">Crear Cuenta VIP (10% OFF)</button>
-                <button type="button" onclick="quickRecoverVipAccount()" class="w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-pink-300 font-bold text-[11px] border border-zinc-700">🔑 ¿Ya eres VIP? Recuperar con Correo o WhatsApp</button>
-              </form>
+              ${!state.regForm.googleVerified ? `
+                <div class="space-y-3.5 text-center py-2">
+                  <p class="text-xs text-zinc-300 leading-relaxed">Primero vincula tu cuenta oficial de Google y enseguida confirma tu nombre y WhatsApp:</p>
+                  <button type="button" onclick="loginWithGoogle()" class="w-full py-4 px-4 rounded-2xl bg-white text-zinc-900 font-black text-xs shadow-xl flex items-center justify-center gap-3 hover:scale-[1.02] transition">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.9C3.5 21.4 7.4 24 12 24z"/></svg>
+                    <span>1. Vincular mi Cuenta de Google</span>
+                  </button>
+                </div>
+              ` : `
+                <form onsubmit="submitCompleteRegistration(event)" class="space-y-3 text-xs animate-fade">
+                  <div class="px-3 py-2 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 flex items-center justify-between">
+                    <span class="truncate font-bold">✓ ${state.regForm.email}</span>
+                    <button type="button" onclick="state.regForm.googleVerified=false; renderApp();" class="text-[10px] underline text-zinc-300 ml-2">Cambiar</button>
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Nombre y Apellido</label>
+                    <input type="text" required value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre y Apellido" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">WhatsApp (10 dígitos)</label>
+                    <input type="tel" required value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="Ej. 9991234567" class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-pink-400 uppercase block mb-1">Código de Referido (Opcional)</label>
+                    <input type="text" value="${state.regForm.referralCode}" oninput="state.regForm.referralCode=this.value;" placeholder="¿Código de invitación? (Opcional)" class="w-full px-4 py-3 rounded-xl bg-pink-900/20 border border-pink-500/50 text-pink-200 uppercase font-mono" />
+                  </div>
+                  <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">Finalizar y Activar 10% OFF VIP</button>
+                </form>
+              `}
             </div>
           </div>
         `;
