@@ -43,6 +43,41 @@
     }
     .neon-alert { animation: neonPulseAlert 1.3s infinite ease-in-out; font-weight: 900; }
 
+    .wheel-container {
+      position: relative;
+      width: 260px;
+      height: 260px;
+      margin: 0 auto;
+      border-radius: 50%;
+      border: 6px solid #f43f5e;
+      box-shadow: 0 0 25px rgba(244, 63, 94, 0.55), inset 0 0 15px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      transition: transform 4.2s cubic-bezier(0.15, 0.88, 0.18, 1);
+      background: conic-gradient(
+        #db2777 0deg 60deg,
+        #18181b 60deg 120deg,
+        #e11d48 120deg 180deg,
+        #27272a 180deg 240deg,
+        #be185d 240deg 300deg,
+        #09090b 300deg 360deg
+      );
+    }
+    .wheel-label {
+      position: absolute;
+      width: 50%;
+      height: 24px;
+      top: calc(50% - 12px);
+      left: 50%;
+      transform-origin: 0% 50%;
+      text-align: right;
+      padding-right: 16px;
+      font-weight: 900;
+      font-size: 12px;
+      color: #ffffff;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+      pointer-events: none;
+    }
+
     @media print {
       body * { visibility: hidden !important; }
       #printable-area, #printable-area * { visibility: visible !important; }
@@ -145,6 +180,16 @@
         firebase.initializeApp(firebaseConfig);
         window.dbRef = firebase.database().ref('rb_boutique_data');
         window.auth = firebase.auth();
+
+        window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+
+        window.auth.getRedirectResult().then((result) => {
+          if (result && result.user) {
+            handleGoogleUserAuthenticated(result.user);
+          }
+        }).catch((err) => {
+          console.warn("Redirect auth info:", err);
+        });
         
         window.dbRef.on('value', (snapshot) => {
           const cloudData = snapshot.val();
@@ -156,9 +201,15 @@
                 if(state.currentUser && state.currentUser.id) {
                     const updatedSelf = state.vipClients.find(c => c.id === state.currentUser.id);
                     if(updatedSelf) {
-                        // Verifica si hay regalos nuevos desde la nube
-                        if(updatedSelf.vipGift && (!state.currentUser.vipGift || state.currentUser.vipGift.message !== updatedSelf.vipGift.message)) {
-                            state.showGiftCelebration = true;
+                        const incomingGift = updatedSelf.vipGift;
+                        const prevGift = state.currentUser.vipGift;
+                        if (incomingGift && !incomingGift.used && !isGiftExpired(incomingGift)) {
+                            const isNewGift = !prevGift || prevGift.createdAt !== incomingGift.createdAt || prevGift.message !== incomingGift.message;
+                            if (isNewGift || !incomingGift.notified) {
+                                state.showGiftCelebration = true;
+                                state.wheelRotation = 0;
+                                state.wheelSpinning = false;
+                            }
                         }
                         state.currentUser = updatedSelf;
                         saveStored('rb_boutique_current_user', updatedSelf);
@@ -212,6 +263,8 @@
       wishlist: loadStored('rb_boutique_wishlist', []),
       customerCart: [], isBagOpen: false, customerDeliveryType: 'pickup', customerDeliveryAddress: '', customerDeliveryMapUrl: '',
       showGiftCelebration: false,
+      wheelSpinning: false,
+      wheelRotation: 0,
 
       selectedProductModal: null, modalSize: '', modalColor: '',
       showPwaInstallModal: false, installGuidePlatform: isIOSDevice() ? 'ios' : 'android', isAppInstalled: isInStandaloneMode(),
@@ -226,6 +279,41 @@
       showNewProductModal: false, inventorySectionFilter: 'Todo', inventorySubcategoryFilter: 'Todo', isEditingProduct: false,
       newProd: { id: '', name: '', sku: '', category: 'Vestidos', subcategory: '', department: 'Mujer', price: '', originalPrice: '', cost: '', image: '', description: '', colorName: 'Negro', colorHex: '#18181b', adultSizes: { XS: 2, S: 4, M: 4, L: 2, XL: 1 }, kidsSizes: { '4': 2, '6': 4, '8': 4, '10': 2, '12': 2 }, shoeSizes: { '22': 1, '23': 3, '24': 4, '25': 4, '26': 3, '27': 2, '28': 1 }, unitallaStock: 10 }
     };
+
+    function isGiftExpired(gift) {
+      if (!gift) return true;
+      if (gift.expiresAt && Date.now() > Number(gift.expiresAt)) return true;
+      return false;
+    }
+
+    function formatRemainingTime(expiresAt) {
+      if (!expiresAt) return '03:00:00';
+      const diff = Math.max(0, Number(expiresAt) - Date.now());
+      if (diff <= 0) return '00:00:00';
+      const hrs = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    setInterval(() => {
+      if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used) {
+        const g = state.currentUser.vipGift;
+        if (g.expiresAt && Date.now() > Number(g.expiresAt)) {
+          state.currentUser.vipGift = null;
+          state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: null } : c);
+          saveStored('rb_boutique_vip_clients', state.vipClients);
+          saveStored('rb_boutique_current_user', state.currentUser);
+          state.showGiftCelebration = false;
+          showToast('⏰ Tu cupón VIP de 3 horas ha expirado', 'error');
+          renderApp();
+          return;
+        }
+        const timers = document.querySelectorAll('.vip-countdown-timer');
+        const formatted = formatRemainingTime(g.expiresAt);
+        timers.forEach(el => { el.textContent = formatted; });
+      }
+    }, 1000);
 
     (function ensurePacaCategoryExists() {
       const pacaIdx = state.visualCategories.findIndex(c => c.id.toLowerCase() === 'paca');
@@ -295,45 +383,86 @@
       saveStored('rb_boutique_wishlist', state.wishlist); renderApp();
     };
 
-    window.loginWithGoogle = function() {
+    function handleGoogleUserAuthenticated(user) {
+      if (!user || !user.email) return;
+      let existingClient = state.vipClients.find(c => c.email && c.email.toLowerCase() === user.email.toLowerCase());
+      if (existingClient) {
+        state.currentUser = existingClient;
+        saveStored('rb_boutique_current_user', existingClient);
+        state.authStatus = 'registered';
+        state.showAuthRegisterModal = false;
+        state.showGoogleFormInWelcome = false;
+        showToast(`¡Bienvenida de nuevo, ${existingClient.name}!`);
+        if (existingClient.vipGift && !existingClient.vipGift.used && !isGiftExpired(existingClient.vipGift) && !existingClient.vipGift.notified) {
+          state.showGiftCelebration = true;
+        }
+        renderApp();
+      } else {
+        state.regForm.name = user.displayName || '';
+        state.regForm.email = user.email || '';
+        state.regForm.phone = '';
+        state.regForm.referralCode = '';
+        state.showGoogleFormInWelcome = true;
+        renderApp();
+      }
+    }
+
+    window.loginWithGoogle = async function() {
+      try {
+        if (!window.auth) {
+          state.showGoogleFormInWelcome = true;
+          renderApp();
+          return;
+        }
+        await window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
         const provider = new firebase.auth.GoogleAuthProvider();
-        firebase.auth().signInWithPopup(provider).then((result) => {
-            const user = result.user;
-            let existingClient = state.vipClients.find(c => c.email.toLowerCase() === user.email.toLowerCase());
-            
-            if (existingClient) {
-                state.currentUser = existingClient;
-                saveStored('rb_boutique_current_user', existingClient);
-                state.authStatus = 'registered';
-                state.showAuthRegisterModal = false;
-                state.showGoogleFormInWelcome = false;
-                showToast(`¡Bienvenida de nuevo, ${existingClient.name}!`);
-                if (existingClient.vipGift && !existingClient.vipGift.notified) state.showGiftCelebration = true;
-                renderApp();
-            } else {
-                // Nuevo usuario, pedir WhatsApp y código referido
-                state.regForm.name = user.displayName || '';
-                state.regForm.email = user.email || '';
-                state.regForm.phone = '';
-                state.regForm.referralCode = '';
-                state.showGoogleFormInWelcome = true;
-                renderApp();
-            }
-        }).catch(err => {
-            showToast('Error al conectar con Google. Revisa tu conexión.', 'error');
-            console.error(err);
-        });
+        provider.setCustomParameters({ prompt: 'select_account' });
+
+        if (isIOSDevice() || isInStandaloneMode()) {
+          await window.auth.signInWithRedirect(provider);
+          return;
+        }
+
+        const result = await window.auth.signInWithPopup(provider);
+        if (result && result.user) {
+          handleGoogleUserAuthenticated(result.user);
+        }
+      } catch (err) {
+        console.warn("Auth fallback activado:", err);
+        if (err && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment' || String(err.message || '').includes('initial state') || String(err.message || '').includes('sessionStorage'))) {
+          try {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            await window.auth.signInWithRedirect(provider);
+            return;
+          } catch (redirErr) {
+            state.showGoogleFormInWelcome = true;
+            renderApp();
+          }
+        } else {
+          state.showGoogleFormInWelcome = true;
+          showToast('Completa tu registro VIP directo aquí 👇');
+          renderApp();
+        }
+      }
     };
 
     window.submitCompleteRegistration = function(e) {
         if (e) e.preventDefault();
         const { name, email, phone, referralCode } = state.regForm;
+        if (!name || !name.trim()) { showToast('Escribe tu nombre completo', 'error'); return; }
+        if (!email || !email.trim()) { showToast('Escribe tu correo electrónico', 'error'); return; }
         if (!phone || phone.length < 10) { showToast('El WhatsApp es obligatorio (10 dígitos)', 'error'); return; }
         
-        const newCode = name.split(' ')[0].toUpperCase() + Math.floor(1000 + Math.random() * 9000);
+        let existingClient = state.vipClients.find(c => c.email && c.email.toLowerCase() === email.trim().toLowerCase());
+        if (existingClient) {
+          handleGoogleUserAuthenticated({ displayName: existingClient.name, email: existingClient.email });
+          return;
+        }
+
+        const newCode = name.trim().split(' ')[0].toUpperCase() + Math.floor(1000 + Math.random() * 9000);
         
         let clientRecord = { 
-            id: `VIP-${Date.now()}`, name, email, phone, discountPct: 10, joinedAt: new Date().toLocaleDateString(), vipGift: null,
+            id: `VIP-${Date.now()}`, name: name.trim(), email: email.trim(), phone: phone.trim(), discountPct: 10, joinedAt: new Date().toLocaleDateString(), vipGift: null,
             referralCode: newCode, referredByCode: (referralCode || '').trim().toUpperCase(), hasMadePurchase: false, successfulReferrals: 0,
             address: '', mapsUrl: ''
         };
@@ -342,18 +471,17 @@
         saveStored('rb_boutique_vip_clients', state.vipClients);
         state.currentUser = clientRecord; saveStored('rb_boutique_current_user', clientRecord);
         state.authStatus = 'registered'; state.showAuthRegisterModal = false; state.showGoogleFormInWelcome = false;
-        showToast(`🎉 ¡Bienvenida ${name}! Tu 10% OFF VIP ya está activo.`);
+        showToast(`🎉 ¡Bienvenida ${clientRecord.name}! Tu 10% OFF VIP ya está activo.`);
         renderApp();
     };
 
     window.logoutApp = function() {
-        firebase.auth().signOut().then(() => {
-            state.currentUser = null; state.authStatus = 'welcome';
-            state.clientBottomTab = 'home'; state.wishlist = []; state.customerCart = [];
-            window.localStorage.removeItem('rb_boutique_current_user');
-            window.localStorage.removeItem('rb_boutique_wishlist');
-            showToast('Sesión cerrada correctamente'); renderApp();
-        });
+        if (window.auth) { window.auth.signOut().catch(() => {}); }
+        state.currentUser = null; state.authStatus = 'welcome';
+        state.clientBottomTab = 'home'; state.wishlist = []; state.customerCart = [];
+        window.localStorage.removeItem('rb_boutique_current_user');
+        window.localStorage.removeItem('rb_boutique_wishlist');
+        showToast('Sesión cerrada correctamente'); renderApp();
     };
 
     window.updateProfileData = function(field, value) {
@@ -366,17 +494,18 @@
     };
 
     window.processReferralSuccess = function(vipClientName) {
-       let client = state.vipClients.find(c => c.name === vipClientName);
+       let client = state.vipClients.find(c => c.name.toLowerCase() === String(vipClientName || '').toLowerCase() || String(vipClientName || '').includes(c.name));
        if(client && !client.hasMadePurchase) {
            client.hasMadePurchase = true;
            if(client.referredByCode) {
                let referer = state.vipClients.find(c => c.referralCode === client.referredByCode);
                if(referer) {
                    referer.successfulReferrals = (referer.successfulReferrals || 0) + 1;
+                   const exp3Hrs = Date.now() + (3 * 60 * 60 * 1000);
                    if(referer.successfulReferrals === 3) {
-                       referer.vipGift = { type: 'percent', value: 10, message: '¡Felicidades! 3 amig@s compraron con tu código. Tienes 10% OFF extra.', used: false, notified: false };
+                       referer.vipGift = { type: 'percent', value: 10, message: '¡Felicidades! 3 amig@s compraron con tu código. Tienes 10% OFF extra por 3 horas.', used: false, notified: false, savedForLater: false, isWheel: false, spun: true, createdAt: Date.now(), expiresAt: exp3Hrs };
                    } else if (referer.successfulReferrals === 5) {
-                       referer.vipGift = { type: 'percent', value: 15, message: '¡Felicidades! 5 amig@s compraron con tu código. Tienes 15% OFF extra.', used: false, notified: false };
+                       referer.vipGift = { type: 'percent', value: 15, message: '¡Felicidades! 5 amig@s compraron con tu código. Tienes 15% OFF extra por 3 horas.', used: false, notified: false, savedForLater: false, isWheel: false, spun: true, createdAt: Date.now(), expiresAt: exp3Hrs };
                    }
                }
            }
@@ -415,8 +544,8 @@
       const isVip = state.authStatus === 'registered' && state.currentUser;
       const vipDiscount = isVip ? Math.round(rawMerchandise * 0.10) : 0;
       let extraRewardDiscount = 0; let extraRewardLabel = '';
-      if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used) {
-        const g = state.currentUser.vipGift; extraRewardLabel = `🎁 Regalo VIP (${g.type === 'percent' ? g.value + '%' : '$' + g.value})`;
+      if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift) && !state.currentUser.vipGift.savedForLater) {
+        const g = state.currentUser.vipGift; extraRewardLabel = `🎁 Cupón VIP (${g.type === 'percent' ? g.value + '%' : '$' + g.value})`;
         extraRewardDiscount = g.type === 'percent' ? Math.round((rawMerchandise - vipDiscount) * (Number(g.value) / 100)) : Number(g.value || 0);
       }
       const netMerchandise = Math.max(0, rawMerchandise - vipDiscount - extraRewardDiscount);
@@ -454,14 +583,80 @@
       return { totalEfectivoVentas, totalTarjetaVentas, totalComisionesTerminal, totalTransferenciaVentas, totalVentasDia, openingCash, totalExpenses, exactPhysicalCashInDrawer };
     }
 
-    window.markGiftAsNotified = function() {
+    window.spinVipWheel = function() {
+      if (state.wheelSpinning || !state.currentUser || !state.currentUser.vipGift) return;
+      const g = state.currentUser.vipGift;
+      state.wheelSpinning = true;
+
+      // Ángulos exactos de las 6 rebanadas en la ruleta:
+      // 0: 5% OFF (30 deg), 1: 50% OFF (90 deg), 2: 10% OFF (150 deg), 3: 90% OFF (210 deg), 4: 15% OFF (270 deg), 5: $150 MXN (330 deg)
+      let targetSliceAngle = 30; // Por defecto 5% OFF
+      if (g.type === 'fixed' && Number(g.value) === 150) targetSliceAngle = 330;
+      else if (Number(g.value) === 5) targetSliceAngle = 30;
+      else if (Number(g.value) === 50) targetSliceAngle = 90;
+      else if (Number(g.value) === 10) targetSliceAngle = 150;
+      else if (Number(g.value) === 90) targetSliceAngle = 210;
+      else if (Number(g.value) === 15) targetSliceAngle = 270;
+
+      // El puntero está arriba (270deg en coordenadas estándar de conic-gradient / 0deg top)
+      const extraSpins = 360 * 6;
+      const landingAngle = extraSpins + (360 - targetSliceAngle);
+      state.wheelRotation = landingAngle;
+
+      const wheelEl = document.getElementById('vip-wheel-element');
+      if (wheelEl) {
+        wheelEl.style.transform = `rotate(${landingAngle}deg)`;
+      }
+
+      setTimeout(() => {
+        state.wheelSpinning = false;
+        if (state.currentUser && state.currentUser.vipGift) {
+          state.currentUser.vipGift.spun = true;
+          state.currentUser.vipGift.expiresAt = Date.now() + (3 * 60 * 60 * 1000);
+          state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
+          saveStored('rb_boutique_vip_clients', state.vipClients);
+          saveStored('rb_boutique_current_user', state.currentUser);
+        }
+        showToast('🎉 ¡Felicidades! Ganaste tu cupón exclusivo (Válido por 3 horas)');
+        renderApp();
+      }, 4300);
+    };
+
+    window.applyVipCouponNow = function() {
       if (state.currentUser && state.currentUser.vipGift) {
         state.currentUser.vipGift.notified = true;
+        state.currentUser.vipGift.savedForLater = false;
+        if (!state.currentUser.vipGift.expiresAt) {
+          state.currentUser.vipGift.expiresAt = Date.now() + (3 * 60 * 60 * 1000);
+        }
         state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
         saveStored('rb_boutique_vip_clients', state.vipClients);
         saveStored('rb_boutique_current_user', state.currentUser);
       }
-      state.showGiftCelebration = false; renderApp();
+      state.showGiftCelebration = false;
+      state.isBagOpen = true;
+      showToast('🛒 ¡Cupón aplicado en tu Carrito! Tienes 3 horas para usarlo.');
+      renderApp();
+    };
+
+    window.saveVipCouponForLater = function() {
+      if (state.currentUser && state.currentUser.vipGift) {
+        state.currentUser.vipGift.notified = true;
+        state.currentUser.vipGift.savedForLater = true;
+        if (!state.currentUser.vipGift.expiresAt) {
+          state.currentUser.vipGift.expiresAt = Date.now() + (3 * 60 * 60 * 1000);
+        }
+        state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
+        saveStored('rb_boutique_vip_clients', state.vipClients);
+        saveStored('rb_boutique_current_user', state.currentUser);
+      }
+      state.showGiftCelebration = false;
+      showToast('📥 Cupón guardado en tu sección "Yo" (Vence en 3 horas)');
+      renderApp();
+    };
+
+    window.markGiftAsNotified = function() {
+      window.applyVipCouponNow();
     };
 
     let tapTimer = null;
@@ -534,15 +729,56 @@
 
     window.openVipGiftSender = function(idx) {
       const cl = state.vipClients[idx]; if (!cl) return;
-      state.vipGiftModal = { idx, clientName: cl.name, message: '¡Regalo VIP Especial por tu preferencia en RB Boutique!', type: 'percent', value: '15' }; renderApp();
+      state.vipGiftModal = {
+        idx,
+        clientName: cl.name,
+        mode: 'wheel', // 'wheel' (Ruleta) o 'direct' (Cupón directo)
+        wheelPrize: '10', // '5', '10', '15', '50', '90', '150'
+        message: '¡Gira la Ruleta VIP de RB Boutique y gana hasta 90% OFF!',
+        type: 'percent',
+        value: '10'
+      };
+      renderApp();
     };
 
     window.submitVipGiftModal = function(e) {
       if (e) e.preventDefault(); const g = state.vipGiftModal; if (!g) return;
-      state.vipClients[g.idx].vipGift = { type: g.type, value: Number(g.value) || 10, message: g.message || '¡Regalo Especial RB Boutique!', used: false, notified: false };
+      const isWheel = g.mode === 'wheel';
+      let finalType = g.type;
+      let finalVal = Number(g.value) || 10;
+
+      if (isWheel) {
+        if (g.wheelPrize === '150') {
+          finalType = 'fixed';
+          finalVal = 150;
+        } else {
+          finalType = 'percent';
+          finalVal = Number(g.wheelPrize) || 10;
+        }
+      }
+
+      const exp3Hours = Date.now() + (3 * 60 * 60 * 1000);
+      state.vipClients[g.idx].vipGift = {
+        type: finalType,
+        value: finalVal,
+        message: g.message || '¡Premio Especial VIP RB Boutique!',
+        used: false,
+        notified: false,
+        savedForLater: false,
+        isWheel: isWheel,
+        spun: !isWheel,
+        createdAt: Date.now(),
+        expiresAt: exp3Hours
+      };
       saveStored('rb_boutique_vip_clients', state.vipClients);
-      if (state.currentUser && state.currentUser.id === state.vipClients[g.idx].id) { state.currentUser = state.vipClients[g.idx]; saveStored('rb_boutique_current_user', state.currentUser); }
-      state.vipGiftModal = null; showToast(`🎁 Regalo sorpresa enviado a ${g.clientName}`); renderApp();
+      if (state.currentUser && state.currentUser.id === state.vipClients[g.idx].id) {
+        state.currentUser = state.vipClients[g.idx];
+        saveStored('rb_boutique_current_user', state.currentUser);
+        state.showGiftCelebration = true;
+      }
+      state.vipGiftModal = null;
+      showToast(isWheel ? `🎡 Ruleta VIP (${finalType==='percent'?finalVal+'%':'$'+finalVal}) enviada a ${g.clientName}` : `🎁 Cupón de 3 horas enviado a ${g.clientName}`);
+      renderApp();
     };
 
     window.submitNewCategoryModal = function(e) {
@@ -617,7 +853,7 @@
       });
       saveStored('rb_boutique_products', state.products);
 
-      if (state.currentUser && state.currentUser.vipGift) {
+      if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.savedForLater && !isGiftExpired(state.currentUser.vipGift)) {
         state.currentUser.vipGift.used = true;
         state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: { ...c.vipGift, used: true } } : c);
         saveStored('rb_boutique_vip_clients', state.vipClients); saveStored('rb_boutique_current_user', state.currentUser);
@@ -721,7 +957,7 @@
                 <form onsubmit="submitCompleteRegistration(event)" class="space-y-3.5 animate-fade">
                   <div class="flex justify-between items-center mb-1"><span class="text-[11px] text-pink-400 font-black uppercase">Completar Perfil VIP</span><button type="button" onclick="state.showGoogleFormInWelcome=false; renderApp();" class="text-[10px] bg-white/10 px-2.5 py-1 rounded-lg text-zinc-300 font-bold">Volver</button></div>
                   <input type="text" required value="${state.regForm.name}" oninput="state.regForm.name=this.value;" placeholder="Tu Nombre y Apellido" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
-                  <input type="email" disabled value="${state.regForm.email}" class="w-full px-4 py-3 rounded-xl bg-black/30 border border-zinc-800 text-sm text-zinc-500" />
+                  <input type="email" required value="${state.regForm.email}" oninput="state.regForm.email=this.value;" placeholder="Tu Correo de Google (Gmail)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
                   <input type="tel" required value="${state.regForm.phone}" oninput="state.regForm.phone=this.value;" placeholder="WhatsApp (10 dígitos obligatorios)" class="w-full px-4 py-3 rounded-xl bg-black/70 border border-zinc-700 text-sm text-white" />
                   <input type="text" value="${state.regForm.referralCode}" oninput="state.regForm.referralCode=this.value;" placeholder="¿Código de invitación de una amiga? (Opcional)" class="w-full px-4 py-3 rounded-xl bg-pink-900/20 border border-pink-500/50 text-sm text-pink-200 uppercase font-mono" />
                   <button type="submit" class="w-full py-4 mt-2 rounded-2xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm shadow-lg hover:scale-[1.02] transition">Crear Cuenta y Entrar con 10% OFF</button>
@@ -810,16 +1046,68 @@
                   </div>
                 </div>
 
-                <div class="p-5 rounded-3xl bg-white border border-zinc-200 shadow-sm">
-                  <h3 class="font-black text-sm mb-4">❤️ Mis Favoritos</h3>
-                  ${userFavs.length === 0 ? `<p class="text-xs text-zinc-500 text-center py-4">Aún no guardas prendas favoritas.</p>` : `
-                    <div class="grid grid-cols-2 gap-3">${userFavs.map(p => `
-                      <div class="border border-zinc-100 rounded-xl overflow-hidden relative cursor-pointer" onclick="openProductDetail('${p.id}')">
-                        <img src="${p.image}" class="w-full h-32 object-cover bg-zinc-50"/>
-                        <button onclick="event.stopPropagation(); toggleWishlist('${p.id}')" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-white shadow flex items-center justify-center"><svg class="w-3.5 h-3.5 text-rose-500 fill-rose-500" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>
-                        <div class="p-2"><p class="text-[10px] font-bold text-zinc-800 truncate">${p.name}</p><p class="text-xs font-black text-pink-600">$${p.price}</p></div>
+                ${state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift) ? `
+                  <div class="p-5 rounded-3xl bg-zinc-900 text-white border-2 border-pink-500 shadow-xl space-y-3 animate-fade">
+                    <div class="flex items-center justify-between">
+                      <span class="px-2.5 py-1 rounded-full bg-pink-600 text-white text-[10px] font-black uppercase">🎟️ Mi Cupón VIP Activo</span>
+                      <span class="px-3 py-1 rounded-xl bg-rose-600/30 border border-rose-500 text-rose-300 font-mono font-black text-xs flex items-center gap-1">
+                        ⏳ Vence en: <span class="vip-countdown-timer">${formatRemainingTime(state.currentUser.vipGift.expiresAt)}</span>
+                      </span>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="text-lg font-black text-pink-400">${state.currentUser.vipGift.type === 'percent' ? state.currentUser.vipGift.value + '% OFF ADICIONAL' : '$' + state.currentUser.vipGift.value + ' MXN DE DESCUENTO'}</p>
+                        <p class="text-xs text-zinc-300">${state.currentUser.vipGift.message}</p>
                       </div>
-                    `).join('')}</div>
+                      ${state.currentUser.vipGift.isWheel && !state.currentUser.vipGift.spun ? `
+                        <button onclick="state.showGiftCelebration=true; renderApp();" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-black text-xs shrink-0 shadow-lg">🎡 Girar Ruleta</button>
+                      ` : state.currentUser.vipGift.savedForLater ? `
+                        <button onclick="applyVipCouponNow()" class="px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-xs shrink-0 shadow-lg">🛒 Aplicar al Carrito</button>
+                      ` : `
+                        <span class="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-black text-[10px] shrink-0">✓ Aplicado en Carrito</span>
+                      `}
+                    </div>
+                  </div>
+                ` : ''}
+
+                <div class="p-5 rounded-3xl bg-white border border-zinc-200 shadow-sm space-y-4">
+                  <div class="flex items-center justify-between">
+                    <h3 class="font-black text-sm">❤️ Mis Favoritos por Departamento</h3>
+                    <span class="text-[11px] font-bold text-pink-600">${userFavs.length} prenda(s)</span>
+                  </div>
+                  ${userFavs.length === 0 ? `<p class="text-xs text-zinc-500 text-center py-6">Aún no guardas prendas favoritas. Toca el corazón ❤️ en cualquier prenda del catálogo.</p>` : `
+                    <div class="space-y-5">
+                      ${Object.entries(userFavs.reduce((acc, item) => {
+                        const deptKey = item.department ? `${item.department} • ${item.category}` : (item.category || 'General');
+                        if (!acc[deptKey]) acc[deptKey] = [];
+                        acc[deptKey].push(item);
+                        return acc;
+                      }, {})).map(([deptName, deptItems]) => `
+                        <div class="space-y-2.5">
+                          <div class="flex items-center justify-between bg-zinc-100 px-3 py-1.5 rounded-xl border border-zinc-200">
+                            <span class="text-[11px] font-black uppercase tracking-wider text-zinc-800">✨ ${deptName}</span>
+                            <span class="text-[10px] font-bold text-pink-600 bg-white px-2 py-0.5 rounded-full border border-pink-200">${deptItems.length}</span>
+                          </div>
+                          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            ${deptItems.map(p => `
+                              <div class="border border-zinc-200 rounded-2xl overflow-hidden relative cursor-pointer group hover:border-black transition flex flex-col justify-between" onclick="openProductDetail('${p.id}')">
+                                <div>
+                                  <img src="${p.image}" class="w-full h-36 object-cover bg-zinc-50"/>
+                                  <button onclick="event.stopPropagation(); toggleWishlist('${p.id}')" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/90 shadow flex items-center justify-center"><svg class="w-3.5 h-3.5 text-rose-500 fill-rose-500" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>
+                                  <div class="p-2.5">
+                                    <p class="text-[11px] font-bold text-zinc-800 line-clamp-1">${p.name}</p>
+                                    <p class="text-xs font-black text-pink-600 mt-0.5">$${p.price} MXN</p>
+                                  </div>
+                                </div>
+                                <div class="px-2.5 pb-2.5">
+                                  <button class="w-full py-1.5 rounded-lg bg-black text-white text-[10px] font-bold">🛒 Ver Tallas</button>
+                                </div>
+                              </div>
+                            `).join('')}
+                          </div>
+                        </div>
+                      `).join('')}
+                    </div>
                   `}
                 </div>
 
@@ -1143,7 +1431,56 @@
       if (state.vipGiftModal) {
         const g = state.vipGiftModal;
         html += `
-          <div class="fixed inset-0 z-[95] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print"><form onsubmit="submitVipGiftModal(event)" class="bg-zinc-900 border border-pink-500/40 rounded-3xl max-w-sm w-full p-6 text-white space-y-4 animate-fade shadow-2xl"><div class="flex justify-between items-center border-b border-zinc-800 pb-3"><div><span class="text-[10px] font-black text-pink-400 uppercase">🎁 Recompensa VIP</span><h3 class="font-black text-base">Regalo a ${g.clientName}</h3></div><button type="button" onclick="state.vipGiftModal=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button></div><div class="space-y-3 text-xs"><div><label class="block text-zinc-400 font-bold mb-1">Tipo de Beneficio</label><select onchange="state.vipGiftModal.type=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold"><option value="percent" ${g.type==='percent'?'selected':''}>Porcentaje (%)</option><option value="fixed" ${g.type==='fixed'?'selected':''}>Dinero Fijo ($)</option></select></div><div><label class="block text-zinc-400 font-bold mb-1">Cantidad del Regalo (15 para 15% OFF)</label><input type="number" required value="${g.value}" oninput="state.vipGiftModal.value=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-pink-400 font-black text-base" /></div><div><label class="block text-zinc-400 font-bold mb-1">Mensaje de Celebración</label><input type="text" required value="${g.message}" oninput="state.vipGiftModal.message=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" /></div></div><button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">🎡 Enviar Regalo VIP</button></form></div>
+          <div class="fixed inset-0 z-[95] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print">
+            <form onsubmit="submitVipGiftModal(event)" class="bg-zinc-900 border border-pink-500/40 rounded-3xl max-w-md w-full p-6 text-white space-y-4 animate-fade shadow-2xl">
+              <div class="flex justify-between items-center border-b border-zinc-800 pb-3">
+                <div>
+                  <span class="text-[10px] font-black text-pink-400 uppercase">🎡 Ruleta y Cupones con Vigencia de 3 Horas</span>
+                  <h3 class="font-black text-base">Enviar Beneficio a ${g.clientName}</h3>
+                </div>
+                <button type="button" onclick="state.vipGiftModal=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 text-xs">
+                <button type="button" onclick="state.vipGiftModal.mode='wheel'; renderApp();" class="py-2.5 rounded-xl font-black transition ${g.mode === 'wheel' ? 'bg-pink-600 text-white shadow' : 'text-zinc-400 hover:text-white'}">🎡 Enviar Ruleta VIP</button>
+                <button type="button" onclick="state.vipGiftModal.mode='direct'; renderApp();" class="py-2.5 rounded-xl font-black transition ${g.mode === 'direct' ? 'bg-pink-600 text-white shadow' : 'text-zinc-400 hover:text-white'}">🎁 Cupón Directo</button>
+              </div>
+
+              ${g.mode === 'wheel' ? `
+                <div class="space-y-3 text-xs bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
+                  <p class="text-[11px] text-zinc-300 leading-relaxed">La clienta verá en su ruleta premios de <strong>5%, 10%, 15%, 50%, 90% y $150 en efectivo</strong>. Selecciona aquí en qué premio caerá exactamente la aguja cuando ella gire:</p>
+                  <div>
+                    <label class="block text-pink-400 font-black mb-1.5 uppercase text-[10px]">🎯 Premio Asignado para esta Clienta:</label>
+                    <select onchange="state.vipGiftModal.wheelPrize=this.value;" class="w-full p-3 rounded-xl bg-zinc-900 border border-pink-500/50 text-white font-black">
+                      <option value="5" ${g.wheelPrize==='5'?'selected':''}>🎯 Caer en 5% OFF (Estándar)</option>
+                      <option value="10" ${g.wheelPrize==='10'?'selected':''}>🎯 Caer en 10% OFF (Recomendado)</option>
+                      <option value="15" ${g.wheelPrize==='15'?'selected':''}>🎯 Caer en 15% OFF (Clienta Frecuente)</option>
+                      <option value="50" ${g.wheelPrize==='50'?'selected':''}>🔥 Caer en 50% OFF (Premio Especial)</option>
+                      <option value="90" ${g.wheelPrize==='90'?'selected':''}>💎 Caer en 90% OFF (Gran Premio)</option>
+                      <option value="150" ${g.wheelPrize==='150'?'selected':''}>💵 Caer en $150 MXN en Efectivo</option>
+                    </select>
+                  </div>
+                </div>
+              ` : `
+                <div class="space-y-3 text-xs">
+                  <div><label class="block text-zinc-400 font-bold mb-1">Tipo de Beneficio</label><select onchange="state.vipGiftModal.type=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold"><option value="percent" ${g.type==='percent'?'selected':''}>Porcentaje (%)</option><option value="fixed" ${g.type==='fixed'?'selected':''}>Dinero Fijo ($)</option></select></div>
+                  <div><label class="block text-zinc-400 font-bold mb-1">Cantidad del Regalo (Ej. 10 para 10% OFF)</label><input type="number" required value="${g.value}" oninput="state.vipGiftModal.value=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-pink-400 font-black text-base" /></div>
+                </div>
+              `}
+
+              <div class="text-xs">
+                <label class="block text-zinc-400 font-bold mb-1">Mensaje para la Clienta</label>
+                <input type="text" required value="${g.message}" oninput="state.vipGiftModal.message=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" />
+              </div>
+
+              <div class="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-[11px] text-rose-300 font-bold flex items-center gap-2">
+                <span>⏳</span>
+                <span>Vigencia automática de <strong>3 horas</strong> con reloj en cuenta regresiva.</span>
+              </div>
+
+              <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">🚀 Enviar Ahora a ${g.clientName}</button>
+            </form>
+          </div>
         `;
       }
 
@@ -1164,9 +1501,66 @@
         html += `<div class="fixed inset-0 z-[92] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitSupervisorPin(event)" class="bg-zinc-900 border-2 border-amber-500/60 text-white rounded-3xl max-w-xs w-full p-7 space-y-5 animate-fade shadow-2xl"><div class="flex justify-between items-center"><h3 class="font-black text-base text-amber-400">PIN DE SEGURIDAD (1994)</h3><button type="button" onclick="state.pinAuthModal=null; renderApp();" class="text-zinc-500 hover:text-white">✕</button></div><input type="password" maxlength="4" required autofocus value="${state.pinAuthModal.pinInput}" oninput="state.pinAuthModal.pinInput=this.value;" class="w-full text-center py-4 bg-zinc-950 border border-amber-500 text-2xl tracking-[0.5em] rounded-xl outline-none"/><button type="submit" class="w-full py-3.5 bg-amber-500 text-black font-black text-sm rounded-xl">Autorizar</button></form></div>`;
       }
 
-      if (state.showGiftCelebration && state.currentUser && state.currentUser.vipGift) {
+      if (state.showGiftCelebration && state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift)) {
+        const g = state.currentUser.vipGift;
+        const needsSpin = g.isWheel && !g.spun;
         html += `
-          <div class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 no-print"><div class="bg-zinc-900 border-2 border-pink-500 text-white rounded-[2rem] max-w-sm w-full p-8 text-center space-y-6 shadow-[0_0_40px_rgba(219,39,119,0.3)] animate-fade relative"><div class="text-6xl mb-4 animate-bounce-slow">🎡🎁</div><h2 class="text-2xl font-black mb-2">¡Sorpresa, ${state.currentUser.name.split(' ')[0]}!</h2><p class="text-sm text-zinc-300 font-bold mb-4 bg-zinc-950 p-4 rounded-2xl border border-zinc-800">${state.currentUser.vipGift.message}</p><div class="bg-gradient-to-r from-pink-600 to-rose-500 text-white px-6 py-3 rounded-xl font-black text-xl shadow-lg">Beneficio: ${state.currentUser.vipGift.type === 'percent' ? state.currentUser.vipGift.value + '% OFF' : '$' + state.currentUser.vipGift.value + ' MXN'}</div><button onclick="markGiftAsNotified()" class="w-full py-4 mt-6 rounded-2xl bg-white text-black font-black text-sm shadow-xl">Aplicar a mi Carrito</button></div></div>
+          <div class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 no-print">
+            <div class="bg-zinc-900 border-2 border-pink-500 text-white rounded-[2rem] max-w-sm w-full p-6 text-center space-y-5 shadow-[0_0_40px_rgba(219,39,119,0.35)] animate-fade relative overflow-hidden">
+              <div class="flex justify-between items-center">
+                <span class="px-3 py-1 rounded-full bg-pink-500/20 border border-pink-500/40 text-pink-300 text-[10px] font-black uppercase">✨ Club VIP RB Boutique</span>
+                <span class="px-2.5 py-1 rounded-lg bg-rose-600/30 border border-rose-500 text-rose-300 font-mono font-black text-[11px]">
+                  ⏳ <span class="vip-countdown-timer">${formatRemainingTime(g.expiresAt)}</span>
+                </span>
+              </div>
+
+              ${needsSpin ? `
+                <div class="space-y-2">
+                  <h2 class="text-xl font-black">🎡 ¡Gira tu Ruleta VIP, ${state.currentUser.name.split(' ')[0]}!</h2>
+                  <p class="text-xs text-zinc-300">${g.message}</p>
+                </div>
+
+                <div class="relative pt-4 pb-2 flex flex-col items-center">
+                  <!-- Puntero Superior -->
+                  <div class="w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[22px] border-t-amber-400 z-20 -mb-3 drop-shadow-lg"></div>
+                  
+                  <!-- Rueda Giratoria con 6 Premios -->
+                  <div id="vip-wheel-element" class="wheel-container" style="transform: rotate(${state.wheelRotation}deg);">
+                    <div class="wheel-label" style="transform: rotate(-60deg);">5% OFF</div>
+                    <div class="wheel-label" style="transform: rotate(0deg);">50% OFF</div>
+                    <div class="wheel-label" style="transform: rotate(60deg);">10% OFF</div>
+                    <div class="wheel-label" style="transform: rotate(120deg);">90% OFF</div>
+                    <div class="wheel-label" style="transform: rotate(180deg);">15% OFF</div>
+                    <div class="wheel-label" style="transform: rotate(240deg);">$150 MXN</div>
+                  </div>
+                </div>
+
+                <button onclick="spinVipWheel()" ${state.wheelSpinning ? 'disabled' : ''} class="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-pink-500 to-rose-600 text-white font-black text-sm shadow-xl hover:scale-[1.02] transition disabled:opacity-60">
+                  ${state.wheelSpinning ? '🎡 Girando la Ruleta...' : '🎯 ¡GIRAR RULETA AHORA!'}
+                </button>
+              ` : `
+                <div class="text-5xl animate-bounce-slow">🎁🎉</div>
+                <div>
+                  <h2 class="text-2xl font-black">¡Felicidades, ${state.currentUser.name.split(' ')[0]}!</h2>
+                  <p class="text-xs text-zinc-300 mt-1">${g.message}</p>
+                </div>
+                <div class="bg-gradient-to-r from-pink-600 to-rose-500 text-white px-5 py-3.5 rounded-2xl font-black text-xl shadow-lg">
+                  Ganaste: ${g.type === 'percent' ? g.value + '% DE DESCUENTO EXTRA' : '$' + g.value + ' MXN EN EFECTIVO'}
+                </div>
+                <p class="text-[11px] text-rose-300 font-bold bg-rose-950/50 border border-rose-500/30 py-2 px-3 rounded-xl">
+                  ⏳ Este cupón vence en <span class="vip-countdown-timer font-mono font-black">${formatRemainingTime(g.expiresAt)}</span> hrs
+                </p>
+                <div class="space-y-2.5 pt-1">
+                  <button onclick="applyVipCouponNow()" class="w-full py-3.5 rounded-2xl bg-white text-black font-black text-xs shadow-xl hover:bg-zinc-100 transition flex items-center justify-center gap-2">
+                    🛒 Aplicar Cupón en mi Carrito Ahora
+                  </button>
+                  <button onclick="saveVipCouponForLater()" class="w-full py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs border border-zinc-700 transition">
+                    📥 Guardar Cupón para mi Próxima Compra (3 hrs)
+                  </button>
+                </div>
+              `}
+            </div>
+          </div>
         `;
       }
 
@@ -1187,7 +1581,8 @@
 
       if (state.isBagOpen) {
         const calc = getCustomerBagCalculations();
-        html += `<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print"><div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade"><div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><h3 class="font-black text-lg">Mi Carrito RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200">✕</button></div><div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu carrito está vacío.</p></div>` : `<div class="space-y-3">${state.customerCart.map(item => `<div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>`).join('')}</div><div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3"><label class="block font-black text-sm text-zinc-900">Método de Entrega</label><select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Calle, número, colonia..." value="${state.customerDeliveryAddress || (state.currentUser?state.currentUser.address:'')}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm" /><input type="url" placeholder="Link Google Maps (Opcional)" value="${state.customerDeliveryMapUrl || (state.currentUser?state.currentUser.mapsUrl:'')}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm text-sky-600" /></div>` : ''}</div>`}</div>${state.customerCart.length > 0 ? `<div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0"><div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold"><span>10% OFF VIP:</span><span>-$${calc.vipDiscount}</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount}</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío:</span><span>+$${calc.shippingFee}</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div><button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black text-white font-black text-sm shadow-xl">${calc.isHomeDelivery ? `Apartar y Enviar ($${calc.requiredAdvance50} Anticipo)` : 'Confirmar Pedido'}</button></div>` : ''}</div></div>`;
+        const activeUserGift = state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift) ? state.currentUser.vipGift : null;
+        html += `<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print"><div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade"><div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><h3 class="font-black text-lg">Mi Carrito RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200">✕</button></div><div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">${activeUserGift ? `<div class="p-3.5 rounded-2xl bg-zinc-900 text-white border border-pink-500 flex items-center justify-between gap-2 text-xs"><div><span class="font-black text-pink-400 block">🎟️ Cupón VIP: ${activeUserGift.type==='percent'?activeUserGift.value+'% OFF':'$'+activeUserGift.value+' MXN'}</span><span class="text-[10px] text-rose-300 font-mono">⏳ Vence en: <strong class="vip-countdown-timer">${formatRemainingTime(activeUserGift.expiresAt)}</strong></span></div>${activeUserGift.savedForLater ? `<button onclick="applyVipCouponNow()" class="px-3 py-1.5 rounded-xl bg-pink-600 text-white font-black text-[10px] shrink-0">Aplicar Ahora</button>` : `<button onclick="saveVipCouponForLater()" class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-[10px] shrink-0">Guardar para después</button>`}</div>` : ''}${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu carrito está vacío.</p></div>` : `<div class="space-y-3">${state.customerCart.map(item => `<div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>`).join('')}</div><div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3"><label class="block font-black text-sm text-zinc-900">Método de Entrega</label><select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Calle, número, colonia..." value="${state.customerDeliveryAddress || (state.currentUser?state.currentUser.address:'')}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm" /><input type="url" placeholder="Link Google Maps (Opcional)" value="${state.customerDeliveryMapUrl || (state.currentUser?state.currentUser.mapsUrl:'')}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm text-sky-600" /></div>` : ''}</div>`}</div>${state.customerCart.length > 0 ? `<div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0"><div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold"><span>10% OFF VIP:</span><span>-$${calc.vipDiscount}</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount}</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío:</span><span>+$${calc.shippingFee}</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div><button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black text-white font-black text-sm shadow-xl">${calc.isHomeDelivery ? `Apartar y Enviar ($${calc.requiredAdvance50} Anticipo)` : 'Confirmar Pedido'}</button></div>` : ''}</div></div>`;
       }
 
       if (state.whatsappCheckoutModal) {
