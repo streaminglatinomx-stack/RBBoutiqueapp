@@ -43,6 +43,25 @@
     }
     .neon-alert { animation: neonPulseAlert 1.3s infinite ease-in-out; font-weight: 900; }
 
+    /* Efecto Desintegración de Burbuja (Estilo Telegram / Thanos) */
+    @keyframes bubbleShrinkImplode {
+      0% { transform: scale(1); opacity: 1; filter: blur(0px); }
+      40% { transform: scale(1.12); opacity: 0.9; filter: brightness(1.3); }
+      100% { transform: scale(0); opacity: 0; filter: blur(6px); }
+    }
+    .bubble-disintegrating-core {
+      animation: bubbleShrinkImplode 0.48s cubic-bezier(0.55, 0.08, 0.68, 0.53) forwards !important;
+      pointer-events: none !important;
+    }
+    .thanos-particle {
+      position: fixed;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 9999;
+      will-change: transform, opacity;
+      transition: transform 0.62s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.62s ease-out;
+    }
+
     .wheel-container {
       position: relative;
       width: 260px;
@@ -158,6 +177,13 @@
 
     const DEFAULT_PACA_SUBCATEGORIES = ['Mujer', 'Hombres', 'Niños', 'Niñas', 'Deportivo Mujer', 'Deportivo Hombre'];
 
+    function normalizeFirebaseList(val) {
+      if (!val) return [];
+      if (Array.isArray(val)) return val.filter(Boolean);
+      if (typeof val === 'object') return Object.values(val).filter(Boolean);
+      return [];
+    }
+
     function loadStored(key, fallback) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
     
     function saveStored(key, data) { 
@@ -194,33 +220,50 @@
         window.dbRef.on('value', (snapshot) => {
           const cloudData = snapshot.val();
           if (cloudData) {
-            if (cloudData.rb_boutique_products) state.products = cloudData.rb_boutique_products;
-            if (cloudData.rb_boutique_sales) state.salesHistory = cloudData.rb_boutique_sales;
-            if (cloudData.rb_boutique_vip_clients) {
-                state.vipClients = cloudData.rb_boutique_vip_clients;
-                if(state.currentUser && state.currentUser.id) {
-                    const updatedSelf = state.vipClients.find(c => c.id === state.currentUser.id);
-                    if(updatedSelf) {
-                        const incomingGift = updatedSelf.vipGift;
-                        const prevGift = state.currentUser.vipGift;
-                        if (incomingGift && !incomingGift.used && !isGiftExpired(incomingGift)) {
-                            const isNewGift = !prevGift || prevGift.createdAt !== incomingGift.createdAt || prevGift.message !== incomingGift.message;
-                            if (isNewGift || !incomingGift.notified) {
-                                state.showGiftCelebration = true;
-                                state.wheelRotation = 0;
-                                state.wheelSpinning = false;
-                            }
-                        }
-                        state.currentUser = updatedSelf;
-                        saveStored('rb_boutique_current_user', updatedSelf);
+            const hadBubbleBefore = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
+
+            state.products = normalizeFirebaseList(cloudData.rb_boutique_products);
+            state.salesHistory = normalizeFirebaseList(cloudData.rb_boutique_sales);
+            
+            if (cloudData.rb_boutique_vip_clients !== undefined) {
+              state.vipClients = normalizeFirebaseList(cloudData.rb_boutique_vip_clients);
+              if (state.currentUser && state.currentUser.id) {
+                const updatedSelf = state.vipClients.find(c => c.id === state.currentUser.id);
+                if (updatedSelf) {
+                  const incomingGift = updatedSelf.vipGift;
+                  const prevGift = state.currentUser.vipGift;
+                  if (incomingGift && !incomingGift.used && !isGiftExpired(incomingGift)) {
+                    const isNewGift = !prevGift || prevGift.createdAt !== incomingGift.createdAt || prevGift.message !== incomingGift.message;
+                    if (isNewGift || !incomingGift.notified) {
+                      state.showGiftCelebration = true;
+                      state.wheelRotation = 0;
+                      state.wheelSpinning = false;
                     }
+                  }
+                  state.currentUser = updatedSelf;
+                  try { window.localStorage.setItem('rb_boutique_current_user', JSON.stringify(updatedSelf)); } catch (e) {}
                 }
+              }
             }
+
             if (cloudData.rb_boutique_petty_cash) state.pettyCash = cloudData.rb_boutique_petty_cash;
-            if (cloudData.rb_boutique_categories) state.visualCategories = cloudData.rb_boutique_categories;
-            if (cloudData.rb_boutique_tickets) state.supportTickets = cloudData.rb_boutique_tickets;
-            if (cloudData.rb_boutique_config) state.storeConfig = { ...state.storeConfig, ...cloudData.rb_boutique_config };
-            renderApp();
+            if (cloudData.rb_boutique_categories) state.visualCategories = normalizeFirebaseList(cloudData.rb_boutique_categories);
+            
+            // CORRECCIÓN MAGISTRAL DEL NODO VACÍO DE FIREBASE (|| [])
+            state.supportTickets = normalizeFirebaseList(cloudData.rb_boutique_tickets);
+            try { window.localStorage.setItem('rb_boutique_tickets', JSON.stringify(state.supportTickets)); } catch (e) {}
+
+            if (cloudData.rb_boutique_config) {
+              state.storeConfig = { ...state.storeConfig, ...cloudData.rb_boutique_config };
+            }
+
+            const hasBubbleNow = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
+
+            if (hadBubbleBefore && !hasBubbleNow) {
+              window.desintegrarBurbuja();
+            } else {
+              renderApp();
+            }
           } else {
             if (state.products.length > 0) saveStored('rb_boutique_products', state.products);
             if (state.visualCategories.length > 0) saveStored('rb_boutique_categories', state.visualCategories);
@@ -262,6 +305,8 @@
       profileActiveSection: null,
       showNotificationsModal: false,
       isSupportChatOpen: false,
+      isBubbleDisintegrating: false,
+      pendingBubbleDisintegration: false,
       activeBannerIdx: 0,
       adminReplyDrafts: {},
       
@@ -282,6 +327,11 @@
           title: 'TENDENCIAS\nQUE AMARÁS',
           image: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1200&q=80',
           autoRotate: true
+        },
+        authSecurity: {
+          adminUser: atob('UmViZWNhMjI='),
+          adminPass: atob('UmViZWNhMTk5NA=='),
+          supervisorPin: atob('MTk5NA==')
         }
       }),
 
@@ -312,6 +362,93 @@
       
       showNewProductModal: false, inventorySectionFilter: 'Todo', inventorySubcategoryFilter: 'Todo', isEditingProduct: false,
       newProd: { id: '', name: '', sku: '', category: 'Vestidos', subcategory: '', department: 'Mujer', price: '', originalPrice: '', cost: '', image: '', description: '', colorName: 'Negro', colorHex: '#18181b', adultSizes: { XS: 2, S: 4, M: 4, L: 2, XL: 1 }, kidsSizes: { '4': 2, '6': 4, '8': 4, '10': 2, '12': 2 }, shoeSizes: { '22': 1, '23': 3, '24': 4, '25': 4, '26': 3, '27': 2, '28': 1 }, unitallaStock: 10 }
+    };
+
+    // Asegurar estructura de seguridad en storeConfig (migración automática a Firebase)
+    (function ensureSecurityConfig() {
+      if (!state.storeConfig.authSecurity) {
+        state.storeConfig.authSecurity = {
+          adminUser: atob('UmViZWNhMjI='),
+          adminPass: atob('UmViZWNhMTk5NA=='),
+          supervisorPin: atob('MTk5NA==')
+        };
+        saveStored('rb_boutique_config', state.storeConfig);
+      }
+    })();
+
+    // Función para archivar cupones en la Bóveda de Historial de Cupones (giftHistory)
+    function archiveClientVipGift(clientObj, statusLabel = 'Usado ✅') {
+      if (!clientObj || !clientObj.vipGift) return;
+      if (!Array.isArray(clientObj.giftHistory)) clientObj.giftHistory = [];
+      const archivedEntry = {
+        id: 'HIST-' + Date.now(),
+        type: clientObj.vipGift.type,
+        value: clientObj.vipGift.value,
+        message: clientObj.vipGift.message || 'Premio VIP RB Boutique',
+        archivedAt: new Date().toLocaleDateString() + ' • ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        finalStatus: statusLabel
+      };
+      clientObj.giftHistory = [archivedEntry, ...clientObj.giftHistory].slice(0, 25);
+    }
+
+    // MOTOR DE DESINTEGRACIÓN EN PARTÍCULAS (EFECTO TELEGRAM / THANOS)
+    window.desintegrarBurbuja = function() {
+      if (state.isBubbleDisintegrating) return;
+      const bubbleBtn = document.getElementById('floating-support-bubble-btn');
+      let centerX = window.innerWidth - 44;
+      let centerY = window.innerHeight - 108;
+
+      if (bubbleBtn) {
+        const rect = bubbleBtn.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          centerX = rect.left + rect.width / 2;
+          centerY = rect.top + rect.height / 2;
+        }
+      }
+
+      state.isSupportChatOpen = false;
+      state.isBubbleDisintegrating = true;
+      renderApp();
+
+      const colors = ['#ec4899', '#f43f5e', '#ffffff', '#fb7185', '#fda4af', '#db2777'];
+      const particles = [];
+      const totalParticles = 28;
+
+      for (let i = 0; i < totalParticles; i++) {
+        const p = document.createElement('div');
+        p.className = 'thanos-particle';
+        const size = Math.floor(Math.random() * 6) + 4;
+        const color = colors[i % colors.length];
+        p.style.width = `${size}px`;
+        p.style.height = `${size}px`;
+        p.style.backgroundColor = color;
+        p.style.boxShadow = `0 0 8px ${color}`;
+        p.style.left = `${centerX - size / 2}px`;
+        p.style.top = `${centerY - size / 2}px`;
+        p.style.transform = 'translate3d(0, 0, 0) scale(1)';
+        p.style.opacity = '1';
+        document.body.appendChild(p);
+        particles.push(p);
+      }
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          particles.forEach((p, idx) => {
+            const angle = (Math.PI * 2 * idx) / totalParticles + (Math.random() - 0.5) * 0.65;
+            const distance = 35 + Math.random() * 65;
+            const tx = Math.cos(angle) * distance;
+            const ty = Math.sin(angle) * distance - (Math.random() * 18);
+            p.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(0.15) rotate(${Math.random() * 180}deg)`;
+            p.style.opacity = '0';
+          });
+        });
+      });
+
+      setTimeout(() => {
+        particles.forEach(p => { if (p.parentNode) p.parentNode.removeChild(p); });
+        state.isBubbleDisintegrating = false;
+        renderApp();
+      }, 640);
     };
 
     function isGiftExpired(gift) {
@@ -384,7 +521,7 @@
     function getClientActiveTickets() {
       if (!state.currentUser) return [];
       return (state.supportTickets || []).filter(t =>
-        t.status !== 'Resuelto' &&
+        t && t.status !== 'Resuelto' &&
         ((t.customerId && t.customerId === state.currentUser.id) ||
          (t.email && state.currentUser.email && t.email.toLowerCase() === state.currentUser.email.toLowerCase()) ||
          (t.customerName && t.customerName === state.currentUser.name))
@@ -395,15 +532,58 @@
       if (!state.currentUser) return 0;
       let count = 0;
       const g = state.currentUser.vipGift;
-      if (g && !g.used && !isGiftExpired(g)) {
+      if (g && !g.used && !isGiftExpired(g) && !g.notifDismissed) {
         count += 1;
       }
       const activeTickets = getClientActiveTickets();
       activeTickets.forEach(t => {
-        if (t.unreadByClient) count += 1;
+        if (t.unreadByClient && !t.notifDismissedByClient) count += 1;
       });
       return count;
     }
+
+    // FUNCIONES DE LIMPIEZA DE NOTIFICACIONES (🗑️ INDIVIDUAL Y GLOBAL)
+    window.dismissGiftNotification = function() {
+      if (!state.currentUser || !state.currentUser.vipGift) return;
+      state.currentUser.vipGift.notifDismissed = true;
+      state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
+      saveStored('rb_boutique_vip_clients', state.vipClients);
+      saveStored('rb_boutique_current_user', state.currentUser);
+      showToast('🗑️ Notificación de premio ocultada de la bandeja');
+      renderApp();
+    };
+
+    window.dismissTicketNotification = function(ticketId) {
+      state.supportTickets = (state.supportTickets || []).map(t => {
+        if (t && t.id === ticketId) {
+          return { ...t, unreadByClient: false, notifDismissedByClient: true };
+        }
+        return t;
+      });
+      saveStored('rb_boutique_tickets', state.supportTickets);
+      showToast('🗑️ Notificación de chat limpiada');
+      renderApp();
+    };
+
+    window.clearAllClientNotifications = function() {
+      if (state.currentUser && state.currentUser.vipGift) {
+        state.currentUser.vipGift.notifDismissed = true;
+        state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
+        saveStored('rb_boutique_vip_clients', state.vipClients);
+        saveStored('rb_boutique_current_user', state.currentUser);
+      }
+      let ticketsChanged = false;
+      state.supportTickets = (state.supportTickets || []).map(t => {
+        if (t && state.currentUser && ((t.customerId && t.customerId === state.currentUser.id) || (t.customerName === state.currentUser.name))) {
+          ticketsChanged = true;
+          return { ...t, unreadByClient: false, notifDismissedByClient: true };
+        }
+        return t;
+      });
+      if (ticketsChanged) saveStored('rb_boutique_tickets', state.supportTickets);
+      showToast('✨ Bandeja de notificaciones limpia');
+      renderApp();
+    };
 
     window.sendClientSupportMessage = function(customText) {
       if (!state.currentUser) {
@@ -420,7 +600,7 @@
       }
       const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       let existingTicket = (state.supportTickets || []).find(t =>
-        t.status !== 'Resuelto' &&
+        t && t.status !== 'Resuelto' &&
         ((t.customerId && t.customerId === state.currentUser.id) ||
          (t.email && state.currentUser.email && t.email.toLowerCase() === state.currentUser.email.toLowerCase()))
       );
@@ -433,6 +613,7 @@
         existingTicket.message = text;
         existingTicket.unreadByAdmin = true;
         existingTicket.unreadByClient = false;
+        existingTicket.notifDismissedByClient = false;
       } else {
         const newTicket = {
           id: 'REP-' + Date.now(),
@@ -445,6 +626,7 @@
           status: 'Abierto',
           unreadByAdmin: true,
           unreadByClient: false,
+          notifDismissedByClient: false,
           messages: [
             { sender: 'client', text, time: nowTime }
           ]
@@ -473,6 +655,7 @@
       }
       ticket.messages.push({ sender: 'admin', text: replyText, time: nowTime });
       ticket.unreadByClient = true;
+      ticket.notifDismissedByClient = false;
       ticket.unreadByAdmin = false;
       state.adminReplyDrafts[ticket.id] = '';
       saveStored('rb_boutique_tickets', state.supportTickets);
@@ -481,11 +664,12 @@
     };
 
     window.openClientFloatingChat = function() {
+      if (state.isBubbleDisintegrating) return;
       state.isSupportChatOpen = !state.isSupportChatOpen;
       if (state.isSupportChatOpen && state.currentUser) {
         let changed = false;
         state.supportTickets = (state.supportTickets || []).map(t => {
-          if (t.status !== 'Resuelto' && ((t.customerId && t.customerId === state.currentUser.id) || (t.customerName === state.currentUser.name))) {
+          if (t && t.status !== 'Resuelto' && ((t.customerId && t.customerId === state.currentUser.id) || (t.customerName === state.currentUser.name))) {
             if (t.unreadByClient) {
               changed = true;
               return { ...t, unreadByClient: false };
@@ -537,12 +721,13 @@
       if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used) {
         const g = state.currentUser.vipGift;
         if (g.expiresAt && Date.now() > Number(g.expiresAt)) {
+          archiveClientVipGift(state.currentUser, 'Expirado ⏰');
           state.currentUser.vipGift = null;
-          state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: null } : c);
+          state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
           saveStored('rb_boutique_vip_clients', state.vipClients);
           saveStored('rb_boutique_current_user', state.currentUser);
           state.showGiftCelebration = false;
-          showToast('⏰ Tu cupón VIP ha expirado', 'error');
+          showToast('⏰ Tu cupón VIP ha expirado y pasó a tu historial', 'error');
           renderApp();
           return;
         }
@@ -620,10 +805,12 @@
       saveStored('rb_boutique_wishlist', state.wishlist); renderApp();
     };
 
+    // FLUJO PULIDO GOOGLE AUTH (PASO 1 -> PASO 2 CON TOKEN VÁLIDO)
     function handleGoogleUserAuthenticated(user) {
       if (!user || !user.email) return;
       let existingClient = state.vipClients.find(c => c.email && c.email.toLowerCase() === user.email.toLowerCase());
       if (existingClient) {
+        if (!Array.isArray(existingClient.giftHistory)) existingClient.giftHistory = [];
         state.currentUser = existingClient;
         saveStored('rb_boutique_current_user', existingClient);
         state.authStatus = 'registered';
@@ -635,17 +822,19 @@
         }
         renderApp();
       } else {
-        state.regForm.name = user.displayName || '';
-        state.regForm.email = user.email || '';
-        state.regForm.phone = '';
-        state.regForm.referralCode = '';
-        state.regForm.googleVerified = true;
+        state.regForm = {
+          name: user.displayName || '',
+          email: user.email || '',
+          phone: '',
+          referralCode: '',
+          googleVerified: true
+        };
         if (state.authStatus === 'welcome') {
           state.showGoogleFormInWelcome = true;
         } else {
           state.showAuthRegisterModal = true;
         }
-        showToast('✅ Correo de Google vinculado. Confirma tu nombre y WhatsApp.');
+        showToast('✅ Cuenta Google verificada. Completa el Paso 2 (WhatsApp).');
         renderApp();
       }
     }
@@ -658,34 +847,29 @@
       const provider = new firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
 
-      // Llamada síncrona inmediata en el primer milisegundo del clic para abrir la ventana oficial de Google sin bloqueo en iPhone ni Android
+      // Vía principal única y síncrona: signInWithPopup
       window.auth.signInWithPopup(provider).then((result) => {
         if (result && result.user) {
           handleGoogleUserAuthenticated(result.user);
         }
       }).catch((err) => {
         console.warn("Google Popup aviso:", err);
-        if (err && err.code === 'auth/popup-closed-by-user') {
-          showToast('Cerraste la ventana de Google antes de elegir tu cuenta', 'error');
+        if (err && (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request')) {
+          showToast('Selecciona tu cuenta de Google para continuar al Paso 2', 'error');
           return;
         }
-        // Si está en modo pantalla de inicio estricto de iOS donde WebKit bloquea ventanas emergentes, usamos redirección oficial de Google
-        if (window.auth && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment')) {
-          window.auth.signInWithRedirect(provider);
-          return;
-        }
-        showToast('No se pudo abrir Google (' + (err.code || 'verifica tu conexión') + ')', 'error');
+        showToast('No se pudo conectar con Google (' + (err.code || 'verifica tu ventana emergente') + ')', 'error');
       });
     };
 
     window.submitCompleteRegistration = function(e) {
         if (e) e.preventDefault();
-        const { name, email, phone, referralCode } = state.regForm;
+        const { name, email, phone, referralCode, googleVerified } = state.regForm;
         const cleanEmail = (email || '').trim().toLowerCase();
         const cleanPhone = (phone || '').trim().replace(/\D/g, '');
 
-        if (!cleanEmail) {
-          showToast('Primero vincula tu cuenta de Google', 'error');
+        if (!googleVerified || !cleanEmail) {
+          showToast('Primero vincula tu cuenta de Google en el Paso 1', 'error');
           return;
         }
 
@@ -694,6 +878,7 @@
           (cleanPhone.length >= 10 && c.phone && c.phone.trim().replace(/\D/g, '') === cleanPhone)
         );
         if (existingClient) {
+          if (!Array.isArray(existingClient.giftHistory)) existingClient.giftHistory = [];
           state.currentUser = existingClient;
           saveStored('rb_boutique_current_user', existingClient);
           state.authStatus = 'registered';
@@ -711,6 +896,7 @@
         
         let clientRecord = { 
             id: `VIP-${Date.now()}`, name: name.trim(), email: email.trim(), phone: cleanPhone, discountPct: 10, joinedAt: new Date().toLocaleDateString(), vipGift: null,
+            giftHistory: [],
             referralCode: newCode, referredByCode: (referralCode || '').trim().toUpperCase(), hasMadePurchase: false, successfulReferrals: 0,
             address: '', mapsUrl: ''
         };
@@ -727,6 +913,8 @@
         if (window.auth) { window.auth.signOut().catch(() => {}); }
         state.currentUser = null; state.authStatus = 'welcome';
         state.clientBottomTab = 'home'; state.wishlist = []; state.customerCart = [];
+        state.showGoogleFormInWelcome = false;
+        state.regForm = { name: '', email: '', phone: '', referralCode: '', googleVerified: false };
         window.localStorage.removeItem('rb_boutique_current_user');
         window.localStorage.removeItem('rb_boutique_wishlist');
         showToast('Sesión cerrada correctamente'); renderApp();
@@ -752,9 +940,11 @@
                    const defaultRefHrs = Number(state.storeConfig.defaultCouponHours || 3);
                    const expHrs = Date.now() + (defaultRefHrs * 60 * 60 * 1000);
                    if(referer.successfulReferrals === 3) {
-                       referer.vipGift = { type: 'percent', value: 10, message: `¡Felicidades! 3 amig@s compraron con tu código. Tienes 10% OFF extra por ${defaultRefHrs} horas.`, used: false, notified: false, savedForLater: false, isWheel: false, spun: true, durationHours: defaultRefHrs, createdAt: Date.now(), expiresAt: expHrs };
+                       if (referer.vipGift && !referer.vipGift.used) archiveClientVipGift(referer, 'Reemplazado por Premio Referido');
+                       referer.vipGift = { type: 'percent', value: 10, message: `¡Felicidades! 3 amig@s compraron con tu código. Tienes 10% OFF extra por ${defaultRefHrs} horas.`, used: false, notified: false, notifDismissed: false, savedForLater: false, isWheel: false, spun: true, durationHours: defaultRefHrs, createdAt: Date.now(), expiresAt: expHrs };
                    } else if (referer.successfulReferrals === 5) {
-                       referer.vipGift = { type: 'percent', value: 15, message: `¡Felicidades! 5 amig@s compraron con tu código. Tienes 15% OFF extra por ${defaultRefHrs} horas.`, used: false, notified: false, savedForLater: false, isWheel: false, spun: true, durationHours: defaultRefHrs, createdAt: Date.now(), expiresAt: expHrs };
+                       if (referer.vipGift && !referer.vipGift.used) archiveClientVipGift(referer, 'Reemplazado por Premio Referido');
+                       referer.vipGift = { type: 'percent', value: 15, message: `¡Felicidades! 5 amig@s compraron con tu código. Tienes 15% OFF extra por ${defaultRefHrs} horas.`, used: false, notified: false, notifDismissed: false, savedForLater: false, isWheel: false, spun: true, durationHours: defaultRefHrs, createdAt: Date.now(), expiresAt: expHrs };
                    }
                }
            }
@@ -819,17 +1009,24 @@
       return { merchandiseTotal, basePayment, shippingFee, subtotalBeforeFee, isCardTerminal, terminalFee5Pct, finalChargeToday, pendingBalance, cashChange };
     }
 
+    // CORTE DEL DÍA (Z) FILTRADO ESTRICTAMENTE POR LA FECHA ACTUAL
     function getCorteZCalculations() {
-      const validSales = state.salesHistory.filter(s => !String(s.status).includes('Devuelto') && !String(s.bankStatus || '').includes('Rechazado'));
+      const todayDateStr = new Date().toLocaleDateString();
+      const validSales = (state.salesHistory || []).filter(s =>
+        s.date === todayDateStr &&
+        !String(s.status).includes('Devuelto') &&
+        !String(s.bankStatus || '').includes('Rechazado')
+      );
       const totalEfectivoVentas = validSales.filter(s => s.method === 'EFECTIVO').reduce((a, b) => a + Number(b.total || 0), 0);
       const totalTarjetaVentas = validSales.filter(s => s.method === 'TARJETA').reduce((a, b) => a + Number(b.total || 0), 0);
       const totalComisionesTerminal = validSales.filter(s => s.method === 'TARJETA').reduce((a, b) => a + Number(b.terminalFee || 0), 0);
       const totalTransferenciaVentas = validSales.filter(s => s.method.includes('TRANSFERENCIA')).reduce((a, b) => a + Number(b.total || 0), 0);
       const totalVentasDia = totalEfectivoVentas + totalTarjetaVentas + totalTransferenciaVentas;
       const openingCash = Number(state.pettyCash.openingBalance || 0);
-      const totalExpenses = (state.pettyCash.expenses || []).reduce((a, b) => a + Number(b.amount || 0), 0);
+      const todayExpenses = (state.pettyCash.expenses || []).filter(ex => !ex.date || ex.date === todayDateStr);
+      const totalExpenses = todayExpenses.reduce((a, b) => a + Number(b.amount || 0), 0);
       const exactPhysicalCashInDrawer = openingCash + totalEfectivoVentas - totalExpenses;
-      return { totalEfectivoVentas, totalTarjetaVentas, totalComisionesTerminal, totalTransferenciaVentas, totalVentasDia, openingCash, totalExpenses, exactPhysicalCashInDrawer };
+      return { todayDateStr, validSalesCount: validSales.length, totalEfectivoVentas, totalTarjetaVentas, totalComisionesTerminal, totalTransferenciaVentas, totalVentasDia, openingCash, totalExpenses, exactPhysicalCashInDrawer };
     }
 
     window.spinVipWheel = function() {
@@ -837,9 +1034,7 @@
       const g = state.currentUser.vipGift;
       state.wheelSpinning = true;
 
-      // Ángulos exactos de las 6 rebanadas en la ruleta:
-      // 0: 5% OFF (30 deg), 1: 50% OFF (90 deg), 2: 10% OFF (150 deg), 3: 90% OFF (210 deg), 4: 15% OFF (270 deg), 5: $150 MXN (330 deg)
-      let targetSliceAngle = 30; // Por defecto 5% OFF
+      let targetSliceAngle = 30;
       if (g.type === 'fixed' && Number(g.value) === 150) targetSliceAngle = 330;
       else if (Number(g.value) === 5) targetSliceAngle = 30;
       else if (Number(g.value) === 50) targetSliceAngle = 90;
@@ -847,7 +1042,6 @@
       else if (Number(g.value) === 90) targetSliceAngle = 210;
       else if (Number(g.value) === 15) targetSliceAngle = 270;
 
-      // El puntero está arriba (270deg en coordenadas estándar de conic-gradient / 0deg top)
       const extraSpins = 360 * 6;
       const landingAngle = extraSpins + (360 - targetSliceAngle);
       state.wheelRotation = landingAngle;
@@ -919,12 +1113,16 @@
       else { tapTimer = setTimeout(() => { state.logoTapCount = 0; }, 1400); }
     };
 
+    // VALIDACIÓN DE CREDENCIALES ADMIN DESDE FIREBASE CONFIG
     window.submitAdminLogin = function (e) {
       if (e) e.preventDefault();
-      if (state.adminUser.trim() === 'Rebeca22' && state.adminPass === 'Rebeca1994') {
+      const sec = state.storeConfig.authSecurity || {};
+      const expectedUser = sec.adminUser || atob('UmViZWNhMjI=');
+      const expectedPass = sec.adminPass || atob('UmViZWNhMTk5NA==');
+      if (state.adminUser.trim() === expectedUser && state.adminPass === expectedPass) {
         state.showAdminLoginModal = false; state.adminUser = ''; state.adminPass = ''; 
         state.appMode = 'backoffice'; state.backofficeTab = 'pos';
-        checkLowStockAlert(); showToast('🔓 Bienvenida al Punto de Venta, Rebeca');
+        checkLowStockAlert(); showToast('🔓 Bienvenida al Punto de Venta');
       } else { showToast('Usuario o contraseña incorrectos', 'error'); }
       renderApp();
     };
@@ -933,10 +1131,28 @@
 
     window.submitSupervisorPin = function (e) {
       if (e) e.preventDefault(); if (!state.pinAuthModal) return;
-      if (state.pinAuthModal.pinInput !== '1994') { showToast('PIN incorrecto (Autorización denegada).', 'error'); return; }
+      const sec = state.storeConfig.authSecurity || {};
+      const expectedPin = sec.supervisorPin || atob('MTk5NA==');
+      if (state.pinAuthModal.pinInput !== expectedPin) { showToast('PIN incorrecto (Autorización denegada).', 'error'); return; }
       const { action, data } = state.pinAuthModal; state.pinAuthModal = null;
 
-      if (action === 'exit_pos') { state.appMode = 'storefront'; state.clientBottomTab = 'home'; showToast('👁️ Volviste a la Tienda Pública'); renderApp(); return; }
+      if (action === 'exit_pos') {
+        state.appMode = 'storefront';
+        state.clientBottomTab = 'home';
+        showToast('👁️ Volviste a la Tienda Pública');
+        if (state.pendingBubbleDisintegration) {
+          state.pendingBubbleDisintegration = false;
+          state.isBubbleDisintegrating = true;
+          renderApp();
+          setTimeout(() => {
+            state.isBubbleDisintegrating = false;
+            window.desintegrarBurbuja();
+          }, 180);
+          return;
+        }
+        renderApp();
+        return;
+      }
       if (action === 'open_petty_expense') { state.pettyCashModal = { mode: 'expense', concept: '', amount: '' }; renderApp(); return; }
       if (action === 'open_petty_opening') { state.pettyCashModal = { mode: 'opening', concept: 'Fondo Inicial de Caja', amount: String(state.pettyCash.openingBalance || 500) }; renderApp(); return; }
       
@@ -965,7 +1181,7 @@
         state.pettyCash.openingBalance = numAmount; saveStored('rb_boutique_petty_cash', state.pettyCash); showToast(`💵 Fondo inicial actualizado a $${numAmount} MXN`);
       } else {
         if (!concept.trim() || numAmount <= 0) { showToast('Ingresa concepto y monto válido', 'error'); return; }
-        state.pettyCash.expenses = [{ id: `GAS-${Date.now()}`, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), concept: concept.trim(), amount: numAmount }, ...(state.pettyCash.expenses || [])];
+        state.pettyCash.expenses = [{ id: `GAS-${Date.now()}`, date: new Date().toLocaleDateString(), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), concept: concept.trim(), amount: numAmount }, ...(state.pettyCash.expenses || [])];
         saveStored('rb_boutique_petty_cash', state.pettyCash); showToast(`💸 Gasto de $${numAmount} registrado en Caja Chica`);
       }
       state.pettyCashModal = null; renderApp();
@@ -979,14 +1195,44 @@
 
     window.confirmAction = function(msg, callback) { state.confirmModal = { message: msg, onConfirm: () => { callback(); state.confirmModal = null; renderApp(); } }; renderApp(); };
 
+    // REPARACIÓN DEL BOTÓN "✏️ EDITAR" CLIENTE VIP DESDE EL POS (SIN ERROR DE COMILLAS)
+    window.openEditVipClientModal = function(idx) {
+      const cl = state.vipClients[idx];
+      if (!cl) return;
+      state.editingClientModal = {
+        idx: idx,
+        name: String(cl.name || ''),
+        phone: String(cl.phone || ''),
+        email: String(cl.email || '')
+      };
+      renderApp();
+    };
+
+    window.saveEditedVipClient = function(e) {
+      if (e) e.preventDefault();
+      const m = state.editingClientModal;
+      if (!m || !state.vipClients[m.idx]) return;
+      state.vipClients[m.idx].name = String(m.name || '').trim();
+      state.vipClients[m.idx].phone = String(m.phone || '').trim();
+      state.vipClients[m.idx].email = String(m.email || '').trim();
+      saveStored('rb_boutique_vip_clients', state.vipClients);
+      if (state.currentUser && state.currentUser.id === state.vipClients[m.idx].id) {
+        state.currentUser = state.vipClients[m.idx];
+        saveStored('rb_boutique_current_user', state.currentUser);
+      }
+      state.editingClientModal = null;
+      showToast('✅ Datos de clienta VIP actualizados');
+      renderApp();
+    };
+
     window.openVipGiftSender = function(idx) {
       const cl = state.vipClients[idx]; if (!cl) return;
       state.vipGiftModal = {
         idx,
         clientName: cl.name,
-        mode: 'wheel', // 'wheel' (Ruleta) o 'direct' (Cupón directo)
-        wheelPrize: '10', // '5', '10', '15', '50', '90', '150'
-        durationHours: '3', // Horario/Tiempo configurable por Rebeca
+        mode: 'wheel',
+        wheelPrize: '10',
+        durationHours: '3',
         message: '¡Gira la Ruleta VIP de RB Boutique y gana hasta 90% OFF!',
         type: 'percent',
         value: '10'
@@ -1010,6 +1256,11 @@
         }
       }
 
+      const targetClient = state.vipClients[g.idx];
+      if (targetClient && targetClient.vipGift && !targetClient.vipGift.used) {
+        archiveClientVipGift(targetClient, 'Reemplazado 🔄');
+      }
+
       const customHours = Math.max(0.5, Number(g.durationHours) || 3);
       const expTimestamp = Date.now() + Math.round(customHours * 60 * 60 * 1000);
       state.vipClients[g.idx].vipGift = {
@@ -1018,6 +1269,7 @@
         message: g.message || '¡Premio Especial VIP RB Boutique!',
         used: false,
         notified: false,
+        notifDismissed: false,
         savedForLater: false,
         isWheel: isWheel,
         spun: !isWheel,
@@ -1101,6 +1353,16 @@
       const calc = getCustomerBagCalculations();
       if (calc.isHomeDelivery && !state.customerDeliveryAddress.trim()) { showToast('Escribe tu dirección completa para el envío', 'error'); return; }
 
+      // VALIDACIÓN DE INVENTARIO EN TIEMPO REAL ANTES DE PROCESAR EL PEDIDO WEB
+      for (const cItem of state.customerCart) {
+        const prodInStock = state.products.find(p => p.id === cItem.productId);
+        const currentAvail = prodInStock && prodInStock.sizes ? Number(prodInStock.sizes[cItem.size] || 0) : 0;
+        if (!prodInStock || currentAvail < cItem.qty) {
+          showToast(`🚨 Stock insuficiente para "${cItem.name}" (Talla ${cItem.size}). Disponibles: ${currentAvail}`, 'error');
+          return;
+        }
+      }
+
       state.products = state.products.map(p => {
         const nextSizes = { ...p.sizes };
         state.customerCart.forEach(cItem => { if (cItem.productId === p.id && nextSizes[cItem.size] !== undefined) nextSizes[cItem.size] = Math.max(0, nextSizes[cItem.size] - cItem.qty); });
@@ -1108,13 +1370,15 @@
       });
       saveStored('rb_boutique_products', state.products);
 
+      // MOVER CUPÓN USADO A LA BÓVEDA DE HISTORIAL DE CUPONES (giftHistory)
       if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.savedForLater && !isGiftExpired(state.currentUser.vipGift)) {
-        state.currentUser.vipGift.used = true;
-        state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: { ...c.vipGift, used: true } } : c);
-        saveStored('rb_boutique_vip_clients', state.vipClients); saveStored('rb_boutique_current_user', state.currentUser);
+        archiveClientVipGift(state.currentUser, 'Usado en Compra ✅');
+        state.currentUser.vipGift = null;
+        state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
+        saveStored('rb_boutique_vip_clients', state.vipClients);
+        saveStored('rb_boutique_current_user', state.currentUser);
       }
 
-      // Guardar dirección en el perfil si el usuario la escribió y no tenía
       if(state.currentUser && state.customerDeliveryAddress) {
           updateProfileData('address', state.customerDeliveryAddress);
           if(state.customerDeliveryMapUrl) updateProfileData('mapsUrl', state.customerDeliveryMapUrl);
@@ -1122,7 +1386,9 @@
 
       const folio = `WEB-${Math.floor(1000 + Math.random() * 9000)}`;
       const newRecord = {
-        id: folio, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        id: folio,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         customer: `${state.currentUser ? state.currentUser.name : 'Cliente Web'} (VIP)`, channel: 'Catálogo App',
         type: calc.isHomeDelivery ? '🛵 Domicilio (50% Anticipo)' : '🏪 Apartado (Mostrador)',
         method: 'TRANSFERENCIA', bankStatus: 'Pendiente Banco', status: calc.isHomeDelivery ? 'Esperando 50%' : 'Pendiente Entrega',
@@ -1152,6 +1418,26 @@
       if (state.posCart.length === 0) { showToast('Agrega prendas al ticket antes de cobrar', 'error'); return; }
       const calc = getPosCalculations();
 
+      // 1. BLOQUEAR COBROS EN EFECTIVO SI EL MONTO RECIBIDO ES MENOR AL TOTAL A COBRAR
+      if (state.posPaymentMethod === 'efectivo') {
+        const receivedAmount = Number(state.cashReceived);
+        if (!state.cashReceived || isNaN(receivedAmount) || receivedAmount < calc.finalChargeToday) {
+          const missing = Math.max(0, calc.finalChargeToday - (receivedAmount || 0));
+          showToast(`⚠️ Monto en efectivo insuficiente. Faltan $${missing} MXN para cubrir los $${calc.finalChargeToday} MXN.`, 'error');
+          return;
+        }
+      }
+
+      // 2. VALIDACIÓN DE INVENTARIO EN TIEMPO REAL JUSTO ANTES DE PROCESAR EL COBRO
+      for (const item of state.posCart) {
+        const prodInStock = state.products.find(p => p.id === item.productId);
+        const currentAvail = prodInStock && prodInStock.sizes ? Number(prodInStock.sizes[item.size] || 0) : 0;
+        if (!prodInStock || currentAvail < item.qty) {
+          showToast(`🚨 Stock agotado o insuficiente para "${item.name}" (Talla ${item.size}). Disponibles: ${currentAvail}`, 'error');
+          return;
+        }
+      }
+
       state.products = state.products.map(p => {
         const nextSizes = { ...p.sizes };
         state.posCart.forEach(item => { if (item.productId === p.id && nextSizes[item.size] !== undefined) nextSizes[item.size] = Math.max(0, nextSizes[item.size] - item.qty); });
@@ -1171,7 +1457,6 @@
 
       state.salesHistory = [saleObj, ...state.salesHistory]; saveStored('rb_boutique_sales', state.salesHistory);
       
-      // Checar si el cliente es VIP para referidos
       if(state.posCustomerName && state.posCustomerName !== 'Cliente Mostrador') {
           processReferralSuccess(state.posCustomerName);
       }
@@ -1212,7 +1497,7 @@
                 <form onsubmit="submitCompleteRegistration(event)" class="space-y-3.5 animate-fade">
                   <div class="flex justify-between items-center mb-1">
                     <span class="text-[11px] text-emerald-400 font-black uppercase flex items-center gap-1">✓ Google Conectado • Paso 2 de 2</span>
-                    <button type="button" onclick="state.showGoogleFormInWelcome=false; renderApp();" class="text-[10px] bg-white/10 px-2.5 py-1 rounded-lg text-zinc-300 font-bold">Cambiar cuenta</button>
+                    <button type="button" onclick="state.showGoogleFormInWelcome=false; state.regForm.googleVerified=false; renderApp();" class="text-[10px] bg-white/10 px-2.5 py-1 rounded-lg text-zinc-300 font-bold">Cambiar cuenta</button>
                   </div>
                   <div class="px-3.5 py-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-200 flex items-center justify-between">
                     <span class="truncate font-bold">✉️ ${state.regForm.email}</span>
@@ -1255,6 +1540,7 @@
       const userFavs = state.products.filter(p => state.wishlist.includes(p.id));
       const userOrders = state.currentUser ? state.salesHistory.filter(s => s.customer && s.customer.includes(state.currentUser.name)) : [];
       const hasActiveCoupon = state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift);
+      const couponHistoryList = (state.currentUser && Array.isArray(state.currentUser.giftHistory)) ? state.currentUser.giftHistory : [];
       const unreadNotifs = getClientUnreadNotificationsCount();
       const heroSlide = getCurrentHeroSlide();
 
@@ -1369,27 +1655,28 @@
                 <!-- MENÚ EN LISTA ORDENADA Y PREMIUM ESTILO AMAZON / SHEIN -->
                 <div class="bg-white rounded-3xl border border-zinc-200/90 shadow-sm divide-y divide-zinc-100 overflow-hidden">
 
-                  <!-- 1. MIS CUPONES Y RULETA VIP -->
+                  <!-- 1. MIS CUPONES, RULETA VIP Y BÓVEDA DE HISTORIAL -->
                   <div>
                     <button onclick="toggleProfileSection('coupons')" class="w-full p-4 flex items-center justify-between hover:bg-zinc-50 transition text-left">
                       <div class="flex items-center gap-3.5">
                         <div class="w-10 h-10 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center text-lg shrink-0">🎟️</div>
                         <div>
                           <div class="flex items-center gap-2">
-                            <span class="font-black text-sm text-zinc-900">Mis Cupones y Recompensas</span>
+                            <span class="font-black text-sm text-zinc-900">Mis Cupones y Bóveda de Premios</span>
                             ${hasActiveCoupon ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">1 Activo</span>` : ''}
+                            ${couponHistoryList.length > 0 ? `<span class="px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-700 text-[9px] font-black">${couponHistoryList.length} en Historial</span>` : ''}
                           </div>
-                          <p class="text-[11px] text-zinc-500">${hasActiveCoupon ? 'Tienes un beneficio con reloj activo listo para usar' : 'Consulta tus cupones y giros de ruleta'}</p>
+                          <p class="text-[11px] text-zinc-500">${hasActiveCoupon ? 'Tienes un beneficio con reloj activo listo para usar' : 'Consulta tus cupones activos y tu bóveda de premios pasados'}</p>
                         </div>
                       </div>
                       <span class="text-zinc-400 font-bold text-sm">${state.profileActiveSection === 'coupons' ? '▲' : '▼'}</span>
                     </button>
                     ${(state.profileActiveSection === 'coupons' || hasActiveCoupon) ? `
-                      <div class="px-4 pb-4 pt-1 bg-zinc-50/70 animate-fade">
+                      <div class="px-4 pb-4 pt-1 bg-zinc-50/70 space-y-3 animate-fade">
                         ${hasActiveCoupon ? `
                           <div class="p-4 rounded-2xl bg-zinc-900 text-white border border-pink-500 shadow-lg space-y-3">
                             <div class="flex items-center justify-between">
-                              <span class="px-2.5 py-0.5 rounded-full bg-pink-600 text-white text-[10px] font-black uppercase">🎁 Cupón Exclusivo</span>
+                              <span class="px-2.5 py-0.5 rounded-full bg-pink-600 text-white text-[10px] font-black uppercase">🎁 Cupón Exclusivo Activo</span>
                               <span class="px-2.5 py-1 rounded-lg bg-rose-600/30 border border-rose-500 text-rose-300 font-mono font-black text-xs">
                                 ⏳ <span class="vip-countdown-timer">${formatRemainingTime(state.currentUser.vipGift.expiresAt)}</span>
                               </span>
@@ -1414,8 +1701,32 @@
                             </div>
                           </div>
                         ` : `
-                          <p class="text-xs text-zinc-500 text-center py-3">Por el momento no tienes cupones adicionales. ¡Tu <strong>10% OFF VIP permanente</strong> siempre está activo en tu carrito!</p>
+                          <p class="text-xs text-zinc-500 text-center py-2">Por el momento no tienes cupones adicionales activos. ¡Tu <strong>10% OFF VIP permanente</strong> siempre está activo en tu carrito!</p>
                         `}
+
+                        <!-- BÓVEDA DE HISTORIAL DE CUPONES (SECCIÓN GRIS) -->
+                        <div class="p-3.5 rounded-2xl bg-zinc-200/75 border border-zinc-300/90 space-y-2.5">
+                          <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-black uppercase tracking-wider text-zinc-600 flex items-center gap-1.5">🏛️ Bóveda de Historial de Cupones</span>
+                            <span class="text-[10px] font-bold text-zinc-500">${couponHistoryList.length} registro(s)</span>
+                          </div>
+                          ${couponHistoryList.length === 0 ? `
+                            <p class="text-[11px] text-zinc-500 text-center py-2">Aquí aparecerán tus cupones y premios anteriores una vez que los hayas utilizado o hayan finalizado.</p>
+                          ` : `
+                            <div class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                              ${couponHistoryList.map(hItem => `
+                                <div class="p-2.5 rounded-xl bg-zinc-100 border border-zinc-300 flex items-center justify-between gap-2 text-xs text-zinc-600">
+                                  <div class="min-w-0">
+                                    <p class="font-black text-zinc-700 truncate">${hItem.type === 'percent' ? hItem.value + '% OFF Extra' : '$' + hItem.value + ' MXN'}</p>
+                                    <p class="text-[10px] text-zinc-500 truncate">${hItem.message || 'Premio VIP'}</p>
+                                    <span class="text-[9px] text-zinc-400 font-mono">${hItem.archivedAt || ''}</span>
+                                  </div>
+                                  <span class="px-2 py-0.5 rounded-md bg-zinc-200 text-zinc-700 font-black text-[9px] uppercase shrink-0 border border-zinc-300">${hItem.finalStatus || 'Finalizado'}</span>
+                                </div>
+                              `).join('')}
+                            </div>
+                          `}
+                        </div>
                       </div>
                     ` : ''}
                   </div>
@@ -1442,7 +1753,7 @@
                             <div>
                               <span class="font-mono font-black text-pink-600">${ord.id}</span>
                               <p class="text-zinc-600 font-bold mt-0.5">${ord.type}</p>
-                              <span class="text-[10px] text-zinc-400">${ord.time}</span>
+                              <span class="text-[10px] text-zinc-400">${ord.date ? ord.date + ' • ' : ''}${ord.time}</span>
                             </div>
                             <div class="text-right">
                               <p class="font-black text-sm text-zinc-900">$${ord.total} MXN</p>
@@ -1744,7 +2055,7 @@
               <button onclick="state.clientBottomTab='home'; renderApp();" class="flex flex-col items-center gap-1 py-1 ${state.clientBottomTab === 'home' ? 'text-black' : 'text-zinc-400 hover:text-black'} transition"><svg class="w-6 h-6" fill="${state.clientBottomTab==='home'?'currentColor':'none'}" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg><span class="text-[9px] font-bold">Inicio</span></button>
               <button onclick="state.clientBottomTab='categories'; renderApp();" class="flex flex-col items-center gap-1 py-1 ${state.clientBottomTab === 'categories' ? 'text-black' : 'text-zinc-400 hover:text-black'} transition"><svg class="w-6 h-6" fill="${state.clientBottomTab==='categories'?'currentColor':'none'}" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/></svg><span class="text-[9px] font-bold">Secciones</span></button>
               <button onclick="state.clientBottomTab='new'; renderApp();" class="flex flex-col items-center gap-1 py-1 ${state.clientBottomTab === 'new' ? 'text-pink-600' : 'text-zinc-400 hover:text-pink-600'} transition"><svg class="w-6 h-6" fill="${state.clientBottomTab==='new'?'currentColor':'none'}" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z"/></svg><span class="text-[9px] font-bold">Tendencias</span></button>
-              <button onclick="state.isBagOpen=true; renderApp();" class="relative flex flex-col items-center gap-1 py-1 text-zinc-400 hover:text-black transition"><svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><span class="text-[9px] font-bold">Carrito</span>${bagCount > 0 ? `<span class="absolute -top-1 right-2 w-4 h-4 rounded-full bg-black text-white text-[9px] font-black flex items-center justify-center border border-white">${bagCount}</span>` : ''}</button>
+              <button onclick="state.isBagOpen=true; renderApp();" class="relative flex flex-col items-center gap-1 py-1 text-zinc-400 hover:text-black transition"><svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><span class="text-[9px] font-bold">Carrito</span>${bagCount > 0 ? `<span class="absolute -top-1 right-2 w-4 h-4 rounded-full bg-black text-white text-[9px] font-black flex items-center justify-center border border-white">${bagCount}</span>` : ''}</button>
               <button onclick="state.clientBottomTab='profile'; renderApp();" class="flex flex-col items-center gap-1 py-1 ${state.clientBottomTab === 'profile' ? 'text-black' : 'text-zinc-400 hover:text-black'} transition"><svg class="w-6 h-6" fill="${state.clientBottomTab==='profile'?'currentColor':'none'}" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg><span class="text-[9px] font-bold">Yo</span></button>
             </div>
           </nav>
@@ -1755,6 +2066,7 @@
     function renderBackofficeHTML() {
       const posCalc = getPosCalculations();
       const corteCalc = getCorteZCalculations();
+      const sec = state.storeConfig.authSecurity || {};
 
       return `
         <div class="min-h-screen bg-zinc-950 text-zinc-100 pb-12">
@@ -1762,7 +2074,7 @@
             <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center font-black text-sm text-white shadow-md border border-pink-400/30">RB</div>
-                <div><h1 class="font-black text-base text-white leading-tight">RB BOUTIQUE • PUNTO DE VENTA</h1><p class="text-[10px] text-zinc-400">Panel Administrativo Central • Rebeca22</p></div>
+                <div><h1 class="font-black text-base text-white leading-tight">RB BOUTIQUE • PUNTO DE VENTA</h1><p class="text-[10px] text-zinc-400">Panel Administrativo Central</p></div>
               </div>
               <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
                 <button onclick="state.backofficeTab='pos'; renderApp();" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${state.backofficeTab === 'pos' ? 'bg-pink-600 text-white shadow-md' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">🧾 Caja y Ventas</button>
@@ -1788,7 +2100,7 @@
                   </div>
                 </div>
 
-                <!-- REDES SOCIALES OFICIALES -->
+                <!-- REDES SOCIALES Y SEGURIDAD FIREBASE -->
                 <div class="space-y-6">
                   <div class="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl space-y-4 shadow-lg">
                     <h3 class="font-black text-white text-base">Redes Sociales Oficiales</h3>
@@ -1803,6 +2115,32 @@
                 </div>
               </div>
 
+              <!-- CREDENCIALES Y PIN EN FIREBASE CONFIG -->
+              <div class="p-6 bg-zinc-900 border border-amber-500/30 rounded-3xl space-y-4 shadow-lg">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-lg">🔐</div>
+                  <div>
+                    <h3 class="font-black text-white text-base">Seguridad y Credenciales en la Nube (Firebase)</h3>
+                    <p class="text-[11px] text-zinc-400">Administra tu usuario, contraseña de acceso y PIN de supervisión sincronizados en Firebase.</p>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Usuario Admin</label>
+                    <input type="text" value="${(sec.adminUser || '').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.authSecurity) state.storeConfig.authSecurity={}; state.storeConfig.authSecurity.adminUser=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Contraseña Admin</label>
+                    <input type="password" value="${(sec.adminPass || '').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.authSecurity) state.storeConfig.authSecurity={}; state.storeConfig.authSecurity.adminPass=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-amber-400 uppercase block mb-1">PIN Supervisor (4 dígitos)</label>
+                    <input type="password" maxlength="4" value="${(sec.supervisorPin || '').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.authSecurity) state.storeConfig.authSecurity={}; state.storeConfig.authSecurity.supervisorPin=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-amber-500/50 text-amber-400 font-mono font-black text-center tracking-widest" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- PERSONALIZAR PORTADA -->
               <div class="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl space-y-4 shadow-lg">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <div class="flex items-center gap-2.5">
@@ -1846,13 +2184,14 @@
                 </div>
               </div>
 
-              <div class="flex justify-end"><button onclick="saveStored('rb_boutique_config', state.storeConfig); showToast('✅ Configuración y Portada guardadas'); renderApp();" class="px-6 py-3.5 bg-pink-600 hover:bg-pink-500 text-white font-black text-sm rounded-2xl shadow-lg">💾 Guardar Ajustes y Portada</button></div>
+              <div class="flex justify-end"><button onclick="saveStored('rb_boutique_config', state.storeConfig); showToast('✅ Configuración, Seguridad y Portada guardadas en Firebase'); renderApp();" class="px-6 py-3.5 bg-pink-600 hover:bg-pink-500 text-white font-black text-sm rounded-2xl shadow-lg">💾 Guardar Ajustes y Seguridad</button></div>
 
+              <!-- BANDEJA DE SOPORTE CON CIERRE Y DESINTEGRACIÓN DE BURBUJA -->
               <div class="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl mt-4 shadow-lg">
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="font-black text-white text-base">💬 Bandeja de Reportes y Chat en Vivo VIP</h3>
-                    <p class="text-[11px] text-zinc-400">Responde aquí para activar la burbuja de chat flotante en el celular de la clienta. Al marcar "Resuelto ✓", su burbuja desaparece.</p>
+                    <p class="text-[11px] text-zinc-400">Responde aquí para activar la burbuja de chat flotante en el celular de la clienta. Al marcar "Resuelto ✓", su burbuja se desintegra en partículas.</p>
                   </div>
                   <span class="px-3 py-1 rounded-full bg-zinc-800 text-xs font-bold text-pink-400">${state.supportTickets.length}</span>
                 </div>
@@ -1865,7 +2204,7 @@
                           <span class="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300">📱 ${t.phone}</span>
                           ${t.unreadByAdmin ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">Nuevo Mensaje</span>` : ''}
                         </div>
-                        <button onclick="confirmAction('¿Marcar conversación como resuelta? Esto cerrará y ocultará la burbuja de chat en la pantalla de la clienta.', () => { state.supportTickets.splice(${idx},1); saveStored('rb_boutique_tickets', state.supportTickets); showToast('✅ Caso resuelto y burbuja cerrada'); })" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl font-black transition">Resuelto ✓</button>
+                        <button onclick="confirmAction('¿Marcar conversación como resuelta? Esto desintegrará en partículas y cerrará la burbuja de chat en la pantalla de la clienta.', () => { state.supportTickets.splice(${idx}, 1); saveStored('rb_boutique_tickets', state.supportTickets); state.pendingBubbleDisintegration = true; showToast('✨ Caso resuelto • Burbuja desintegrada en el dispositivo de la clienta'); })" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl font-black transition">Resuelto ✓</button>
                       </div>
 
                       <div class="space-y-2 max-h-44 overflow-y-auto pr-1">
@@ -1899,10 +2238,14 @@
                         <div class="flex justify-between items-start gap-2"><h3 class="font-black text-sm text-white">${cl.name}</h3>${cl.vipGift && !cl.vipGift.used && !isGiftExpired(cl.vipGift) ? `<span class="px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 text-[9px] font-black border border-pink-500/30">🎁 ${cl.vipGift.type === 'percent' ? cl.vipGift.value + '% OFF' : '$' + cl.vipGift.value} (${cl.vipGift.durationHours || 3}h)</span>` : '<span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[9px] font-bold">10% VIP</span>'}</div>
                         <p class="text-zinc-400 mt-1.5">📱 ${cl.phone} <span class="mx-1">•</span> ✉️ ${cl.email}</p>
                         ${cl.vipGift && !cl.vipGift.used && !isGiftExpired(cl.vipGift) ? `<p class="text-[10px] text-rose-400 font-mono mt-1">⏳ Tiempo restante: <strong class="vip-countdown-timer">${formatRemainingTime(cl.vipGift.expiresAt)}</strong></p>` : ''}
+                        ${Array.isArray(cl.giftHistory) && cl.giftHistory.length > 0 ? `<p class="text-[10px] text-zinc-500 mt-1">🏛️ ${cl.giftHistory.length} premio(s) en bóveda de historial</p>` : ''}
                       </div>
                       <div class="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800/80">
                         <button onclick="openVipGiftSender(${idx})" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 font-black text-white shadow-md"><span>🎡</span> Regalo / Tiempo</button>
-                        <div class="flex gap-1.5"><button onclick="state.editingClientModal={idx: ${idx}, name: '${cl.name.replace(/'/g, "\\'")}', phone: '${cl.phone}', email: '${cl.email}'}; renderApp();" class="flex-1 py-2.5 rounded-xl bg-zinc-800 text-white font-bold">✏️ Editar</button><button onclick="confirmAction('¿Eliminar cliente?', () => { state.vipClients.splice(${idx}, 1); saveStored('rb_boutique_vip_clients', state.vipClients); showToast('Eliminado'); })" class="px-3 py-2.5 rounded-xl bg-rose-500/20 text-rose-400 font-bold">🗑️</button></div>
+                        <div class="flex gap-1.5">
+                          <button onclick="openEditVipClientModal(${idx})" class="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold transition">✏️ Editar</button>
+                          <button onclick="confirmAction('¿Eliminar cliente?', () => { state.vipClients.splice(${idx}, 1); saveStored('rb_boutique_vip_clients', state.vipClients); showToast('Eliminado'); })" class="px-3 py-2.5 rounded-xl bg-rose-500/20 text-rose-400 font-bold">🗑️</button>
+                        </div>
                       </div>
                     </div>
                   `).join('')}
@@ -1932,7 +2275,7 @@
                         <div><label class="text-zinc-400 font-bold block mb-1.5 uppercase tracking-wider text-[10px]">2. Método de Entrega</label><div class="flex bg-zinc-950 border border-zinc-800 rounded-xl p-1 gap-1"><button onclick="state.posDeliveryType='mostrador'; renderApp();" class="flex-1 py-2 rounded-lg font-black transition ${state.posDeliveryType==='mostrador'?'bg-pink-600 text-white shadow':'text-zinc-500 hover:text-white'}">🏪 Mostrador</button><button onclick="state.posDeliveryType='domicilio'; renderApp();" class="flex-1 py-2 rounded-lg font-black transition ${state.posDeliveryType==='domicilio'?'bg-sky-600 text-white shadow':'text-zinc-500 hover:text-white'}">🛵 A Domicilio</button></div></div>
                       </div>
                       ${state.posDeliveryType === 'domicilio' ? `<div class="p-3.5 bg-sky-950/30 border border-sky-500/30 rounded-2xl space-y-2.5 animate-fade text-xs"><div class="flex items-center justify-between"><span class="text-sky-300 font-black uppercase text-[10px]">📦 Datos de Envío</span></div><input type="text" value="${state.posDeliveryAddress}" oninput="state.posDeliveryAddress=this.value;" placeholder="Dirección..." class="w-full p-2.5 bg-zinc-950 border border-zinc-800 text-white rounded-xl focus:border-sky-500 outline-none" /><div class="flex items-center justify-between pt-1"><span class="text-sky-300 font-bold uppercase text-[10px]">Costo de Envío (+MXN):</span> <input type="number" value="${state.posShippingFee}" oninput="state.posShippingFee=this.value; renderApp();" class="w-28 p-2 bg-zinc-950 border border-zinc-700 rounded-xl text-center text-white font-black" /></div></div>` : ''}
-                      <div class="min-h-[135px] max-h-56 overflow-y-auto border border-zinc-800 rounded-2xl p-2.5 bg-zinc-950 space-y-2">${state.posCart.length === 0 ? '<div class="h-full flex flex-col items-center justify-center text-zinc-600 py-8"><p class="text-xs font-bold">Ticket vacío.</p></div>' : state.posCart.map(item => `<div class="flex justify-between items-center bg-zinc-900 p-2.5 rounded-xl border border-zinc-800 text-xs text-white"><div class="flex-1 min-w-0 pr-3"><p class="font-bold truncate">${item.name}</p><p class="text-[10px] text-zinc-400 font-mono mt-0.5">Talla: <strong class="text-pink-400">${item.size}</strong></p></div><div class="flex items-center gap-3 shrink-0"><div class="flex items-center gap-1.5 bg-zinc-950 rounded-lg border border-zinc-700 px-1.5 py-0.5"><button onclick="const exist=state.posCart.find(i=>i.cartId==='${item.cartId}'); if(exist.qty>1){ exist.qty-=1; renderApp(); }" class="w-5 h-5 rounded hover:bg-zinc-800 flex items-center justify-center font-black">-</button><span class="w-4 text-center font-bold">${item.qty}</span><button onclick="const exist=state.posCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===exist.productId); if(exist.qty+1 <= p.sizes[exist.size]){ exist.qty+=1; renderApp(); }" class="w-5 h-5 rounded hover:bg-zinc-800 flex items-center justify-center font-black">+</button></div><span class="font-black text-emerald-400 w-14 text-right">$${item.price*item.qty}</span><button onclick="state.posCart = state.posCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="text-rose-500 hover:bg-rose-500/20 p-1.5 rounded-lg transition">✕</button></div></div>`).join('')}</div>
+                      <div class="min-h-[135px] max-h-56 overflow-y-auto border border-zinc-800 rounded-2xl p-2.5 bg-zinc-950 space-y-2">${state.posCart.length === 0 ? '<div class="h-full flex flex-col items-center justify-center text-zinc-600 py-8"><p class="text-xs font-bold">Ticket vacío.</p></div>' : state.posCart.map(item => `<div class="flex justify-between items-center bg-zinc-900 p-2.5 rounded-xl border border-zinc-800 text-xs text-white"><div class="flex-1 min-w-0 pr-3"><p class="font-bold truncate">${item.name}</p><p class="text-[10px] text-zinc-400 font-mono mt-0.5">Talla: <strong class="text-pink-400">${item.size}</strong></p></div><div class="flex items-center gap-3 shrink-0"><div class="flex items-center gap-1.5 bg-zinc-950 rounded-lg border border-zinc-700 px-1.5 py-0.5"><button onclick="const exist=state.posCart.find(i=>i.cartId==='${item.cartId}'); if(exist.qty>1){ exist.qty-=1; renderApp(); }" class="w-5 h-5 rounded hover:bg-zinc-800 flex items-center justify-center font-black">-</button><span class="w-4 text-center font-bold">${item.qty}</span><button onclick="const exist=state.posCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===exist.productId); if(exist.qty+1 <= p.sizes[exist.size]){ exist.qty+=1; renderApp(); } else { showToast('Stock máximo disponible alcanzado', 'error'); }" class="w-5 h-5 rounded hover:bg-zinc-800 flex items-center justify-center font-black">+</button></div><span class="font-black text-emerald-400 w-14 text-right">$${item.price*item.qty}</span><button onclick="state.posCart = state.posCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="text-rose-500 hover:bg-rose-500/20 p-1.5 rounded-lg transition">✕</button></div></div>`).join('')}</div>
                       <div>
                         <label class="text-zinc-400 font-bold block mb-1.5 uppercase tracking-wider text-[10px]">3. Forma de Pago del Cliente</label>
                         <div class="grid grid-cols-3 gap-2.5">
@@ -1942,7 +2285,18 @@
                         </div>
                       </div>
                       ${posCalc.isCardTerminal ? `<div class="p-3.5 rounded-2xl bg-sky-950/40 border border-sky-500/40 text-xs flex items-center justify-between animate-fade"><div><span class="font-black text-sky-300 block">💳 Comisión de Terminal Bancaria (+5%) Aplicada</span></div><span class="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-300 font-mono font-black text-sm">+$${posCalc.terminalFee5Pct}</span></div>` : ''}
-                      ${state.posPaymentMethod === 'efectivo' ? `<div class="flex items-center gap-3 animate-fade"><label class="text-xs font-bold text-zinc-400 shrink-0">Efectivo Recibido:</label><input type="number" placeholder="Ej. $1000" value="${state.cashReceived}" oninput="state.cashReceived=this.value; renderApp();" class="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-xl text-emerald-400 font-black text-right text-lg outline-none focus:border-emerald-500" />${posCalc.cashChange > 0 ? `<div class="bg-emerald-950/40 px-4 py-2.5 rounded-xl border border-emerald-500/40 text-right shrink-0"><span class="text-[10px] text-emerald-300 block uppercase font-black">Cambio</span><span class="text-emerald-400 font-black text-base">$${posCalc.cashChange}</span></div>` : ''}</div>` : ''}
+                      ${state.posPaymentMethod === 'efectivo' ? `
+                        <div class="space-y-2 animate-fade">
+                          <div class="flex items-center gap-3">
+                            <label class="text-xs font-bold text-zinc-400 shrink-0">Efectivo Recibido ($):</label>
+                            <input type="number" placeholder="Ingresa monto recibido (Mín. $${posCalc.finalChargeToday})" value="${state.cashReceived}" oninput="state.cashReceived=this.value; renderApp();" class="w-full p-3 bg-zinc-950 border ${state.cashReceived !== '' && Number(state.cashReceived) < posCalc.finalChargeToday ? 'border-rose-500 text-rose-400' : 'border-zinc-700 text-emerald-400'} rounded-xl font-black text-right text-lg outline-none focus:border-emerald-500" />
+                            ${posCalc.cashChange > 0 ? `<div class="bg-emerald-950/40 px-4 py-2.5 rounded-xl border border-emerald-500/40 text-right shrink-0"><span class="text-[10px] text-emerald-300 block uppercase font-black">Cambio</span><span class="text-emerald-400 font-black text-base">$${posCalc.cashChange}</span></div>` : ''}
+                          </div>
+                          ${state.cashReceived !== '' && Number(state.cashReceived) < posCalc.finalChargeToday && posCalc.finalChargeToday > 0 ? `
+                            <p class="text-[11px] font-bold text-rose-400 bg-rose-950/40 border border-rose-500/30 px-3 py-1.5 rounded-xl">⚠️ El efectivo recibido ($${Number(state.cashReceived)}) es menor al total a cobrar ($${posCalc.finalChargeToday}). Faltan $${posCalc.finalChargeToday - Number(state.cashReceived)} MXN.</p>
+                          ` : ''}
+                        </div>
+                      ` : ''}
                       <div class="bg-zinc-950 p-4 rounded-2xl border-2 border-zinc-800 space-y-1.5"><div class="flex items-center justify-between text-xs text-zinc-400"><span>Subtotal Prendas ${posCalc.shippingFee > 0 ? '+ Envío ($' + posCalc.shippingFee + ')' : ''}:</span><span class="font-bold text-zinc-200">$${posCalc.subtotalBeforeFee} MXN</span></div>${posCalc.isCardTerminal ? `<div class="flex items-center justify-between text-xs text-sky-400 font-bold"><span>+ Comisión Terminal (5%):</span><span>+$${posCalc.terminalFee5Pct} MXN</span></div>` : ''}<div class="flex items-center justify-between font-black text-lg pt-1 border-t border-zinc-800"><span class="text-white uppercase text-xs tracking-wider">Total a Cobrar:</span><span class="text-pink-400 text-2xl">$${posCalc.finalChargeToday} MXN</span></div></div>
                       <button onclick="completePosSale()" class="w-full py-4 bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm rounded-2xl shadow-xl hover:scale-[1.01] transition flex items-center justify-center gap-2">💵 Cobrar y Generar Ticket (${posCalc.isCardTerminal ? 'Incluye 5% Terminal' : '$' + posCalc.finalChargeToday})</button>
                     </div>
@@ -1951,17 +2305,17 @@
 
                 <div class="lg:col-span-5 space-y-5">
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg space-y-3.5">
-                    <div class="flex items-center justify-between"><div><span class="text-[10px] font-black uppercase tracking-wider text-emerald-400">💰 Control de Efectivo Físico</span><h3 class="font-black text-white text-sm">Gestor de Caja Chica</h3></div><div class="flex gap-1.5"><button onclick="requestTicketPinAuth('open_petty_opening')" class="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-200">🔒 Fondo Inicial</button><button onclick="requestTicketPinAuth('open_petty_expense')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/20 text-[10px] font-black text-amber-300">🔒 - Retirar Gasto</button></div></div>
-                    <div class="grid grid-cols-3 gap-2 text-center bg-zinc-950 p-3 rounded-2xl border border-zinc-800 text-xs"><div><span class="text-[10px] text-zinc-400 block">Fondo Inicial</span><span class="font-black text-white text-sm">$${corteCalc.openingCash}</span></div><div class="border-x border-zinc-800"><span class="text-[10px] text-zinc-400 block">+ Ventas Efectivo</span><span class="font-black text-emerald-400 text-sm">+$${corteCalc.totalEfectivoVentas}</span></div><div><span class="text-[10px] text-zinc-400 block">- Gastos / Retiros</span><span class="font-black text-rose-400 text-sm">-$${corteCalc.totalExpenses}</span></div></div>
-                    <div class="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30"><span class="text-xs font-bold text-emerald-200">Efectivo Exacto en Cajón:</span><span class="text-lg font-black text-emerald-400">$${corteCalc.exactPhysicalCashInDrawer} MXN</span></div>
+                    <div class="flex items-center justify-between"><div><span class="text-[10px] font-black uppercase tracking-wider text-emerald-400">💰 Control de Efectivo Físico (${corteCalc.todayDateStr})</span><h3 class="font-black text-white text-sm">Gestor de Caja Chica del Día</h3></div><div class="flex gap-1.5"><button onclick="requestTicketPinAuth('open_petty_opening')" class="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-200">🔒 Fondo Inicial</button><button onclick="requestTicketPinAuth('open_petty_expense')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/20 text-[10px] font-black text-amber-300">🔒 - Retirar Gasto</button></div></div>
+                    <div class="grid grid-cols-3 gap-2 text-center bg-zinc-950 p-3 rounded-2xl border border-zinc-800 text-xs"><div><span class="text-[10px] text-zinc-400 block">Fondo Inicial</span><span class="font-black text-white text-sm">$${corteCalc.openingCash}</span></div><div class="border-x border-zinc-800"><span class="text-[10px] text-zinc-400 block">+ Ventas Hoy</span><span class="font-black text-emerald-400 text-sm">+$${corteCalc.totalEfectivoVentas}</span></div><div><span class="text-[10px] text-zinc-400 block">- Gastos Hoy</span><span class="font-black text-rose-400 text-sm">-$${corteCalc.totalExpenses}</span></div></div>
+                    <div class="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30"><span class="text-xs font-bold text-emerald-200">Efectivo Exacto en Cajón (Hoy):</span><span class="text-lg font-black text-emerald-400">$${corteCalc.exactPhysicalCashInDrawer} MXN</span></div>
                   </div>
 
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex flex-col">
-                    <div class="flex items-center justify-between border-b border-zinc-800 pb-3.5 mb-3.5"><div><h3 class="font-black text-white text-base">📋 Historial y Corte</h3></div><button onclick="state.showCorteModal=true; renderApp();" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow-lg">🖨️ Corte del Día (Z)</button></div>
+                    <div class="flex items-center justify-between border-b border-zinc-800 pb-3.5 mb-3.5"><div><h3 class="font-black text-white text-base">📋 Historial y Corte del Día</h3><p class="text-[10px] text-zinc-400">El Corte Z filtra exclusivamente las ventas de hoy (${corteCalc.todayDateStr})</p></div><button onclick="state.showCorteModal=true; renderApp();" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow-lg">🖨️ Corte del Día (Z)</button></div>
                     <div class="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar max-h-[500px]">
                       ${state.salesHistory.length === 0 ? '<div class="text-center py-10 text-zinc-500 text-xs font-bold">Aún no hay ventas.</div>' : state.salesHistory.map((sale, idx) => `
                         <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800/90 flex flex-col gap-2.5 relative">
-                          <div class="flex justify-between items-start gap-2"><div><div class="flex items-center gap-2 mb-1"><span class="font-mono font-black text-[11px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded border border-pink-500/20">${sale.id}</span></div><span class="font-bold text-white text-xs block">${sale.customer}</span><p class="text-[10px] text-zinc-400 mt-0.5"><strong class="uppercase">${sale.method}</strong></p></div><div class="text-right"><p class="font-black text-emerald-400 text-base">$${sale.total}</p><span class="inline-block mt-1 px-2 py-0.5 rounded bg-zinc-800 text-white font-bold text-[9px] uppercase">${sale.status || 'Completado'}</span></div></div>
+                          <div class="flex justify-between items-start gap-2"><div><div class="flex items-center gap-2 mb-1"><span class="font-mono font-black text-[11px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded border border-pink-500/20">${sale.id}</span><span class="text-[10px] text-zinc-500">${sale.date || ''} • ${sale.time || ''}</span></div><span class="font-bold text-white text-xs block">${sale.customer}</span><p class="text-[10px] text-zinc-400 mt-0.5"><strong class="uppercase">${sale.method}</strong></p></div><div class="text-right"><p class="font-black text-emerald-400 text-base">$${sale.total}</p><span class="inline-block mt-1 px-2 py-0.5 rounded bg-zinc-800 text-white font-bold text-[9px] uppercase">${sale.status || 'Completado'}</span></div></div>
                           <div class="flex flex-wrap gap-1.5 pt-2 border-t border-zinc-800/60"><button onclick="state.lastReceipt = state.salesHistory[${idx}]; renderApp();" class="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-bold text-[10px] text-zinc-200">🧾 Ticket</button><button onclick="requestTicketPinAuth('edit', ${idx})" class="px-2.5 py-1.5 bg-zinc-800 rounded-lg font-bold text-[10px] text-white">🔒 Modificar</button><button onclick="requestTicketPinAuth('refund', ${idx})" class="px-2.5 py-1.5 bg-rose-500/10 text-rose-400 rounded-lg font-bold text-[10px]">🔒 Devolver</button></div>
                           ${sale.method !== 'EFECTIVO' && !String(sale.status).includes('Devuelto') ? `<div class="flex items-center justify-between gap-2 pt-2 border-t border-zinc-900 text-[10px]"><span class="font-bold text-amber-400">Banco: ${sale.bankStatus || 'Pendiente'}</span><div class="flex gap-1.5"><button onclick="state.salesHistory[${idx}].bankStatus='Verificado en Banco ✅'; state.salesHistory[${idx}].status='Pago Confirmado'; saveStored('rb_boutique_sales', state.salesHistory); processReferralSuccess('${sale.customer}'); renderApp(); showToast('✅ Pago verificado');" class="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded-lg font-bold">✅ Verificado</button></div></div>` : ''}
                         </div>
@@ -2024,7 +2378,6 @@
                 </div>
               `}
 
-              <!-- CONTROL DE HORARIO / DURACIÓN DEL CUPÓN CON RELOJ -->
               <div class="p-3.5 rounded-2xl bg-zinc-950 border border-rose-500/40 space-y-2 text-xs">
                 <label class="block text-rose-400 font-black uppercase text-[10px]">⏳ Duración / Horario del Reloj del Cupón:</label>
                 <div class="grid grid-cols-2 gap-2">
@@ -2065,18 +2418,24 @@
       }
 
       if (state.showAdminLoginModal) {
-        html += `<div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-xl bg-black border-2 border-pink-500 text-white flex items-center justify-center font-black text-xl">RB</div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; state.adminUser=''; state.adminPass=''; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="space-y-4"><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Usuario</label><input type="text" required value="${state.adminUser}" oninput="state.adminUser=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Contraseña</label><input type="password" required value="${state.adminPass}" oninput="state.adminPass=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div></div><button type="submit" class="w-full py-4 rounded-xl bg-pink-600 text-sm text-white shadow-[0_0_20px_rgba(219,39,119,0.3)]">Entrar al Punto de Venta</button></form></div>`;
+        html += `<div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-xl bg-black border-2 border-pink-500 text-white flex items-center justify-center font-black text-xl">RB</div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; state.adminUser=''; state.adminPass=''; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="space-y-4"><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Usuario</label><input type="text" required value="${state.adminUser}" oninput="state.adminUser=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Contraseña</label><input type="password" required value="${state.adminPass}" oninput="state.adminPass=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div></div><button type="submit" class="w-full py-4 rounded-xl bg-pink-600 font-black text-sm text-white shadow-[0_0_20px_rgba(219,39,119,0.3)]">Entrar al Punto de Venta</button></form></div>`;
       }
 
       if (state.pinAuthModal) {
-        html += `<div class="fixed inset-0 z-[92] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitSupervisorPin(event)" class="bg-zinc-900 border-2 border-amber-500/60 text-white rounded-3xl max-w-xs w-full p-7 space-y-5 animate-fade shadow-2xl"><div class="flex justify-between items-center"><h3 class="font-black text-base text-amber-400">PIN DE SEGURIDAD (1994)</h3><button type="button" onclick="state.pinAuthModal=null; renderApp();" class="text-zinc-500 hover:text-white">✕</button></div><input type="password" maxlength="4" required autofocus value="${state.pinAuthModal.pinInput}" oninput="state.pinAuthModal.pinInput=this.value;" class="w-full text-center py-4 bg-zinc-950 border border-amber-500 text-2xl tracking-[0.5em] rounded-xl outline-none"/><button type="submit" class="w-full py-3.5 bg-amber-500 text-black font-black text-sm rounded-xl">Autorizar</button></form></div>`;
+        html += `<div class="fixed inset-0 z-[92] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitSupervisorPin(event)" class="bg-zinc-900 border-2 border-amber-500/60 text-white rounded-3xl max-w-xs w-full p-7 space-y-5 animate-fade shadow-2xl"><div class="flex justify-between items-center"><h3 class="font-black text-base text-amber-400">🔒 PIN DE SUPERVISIÓN</h3><button type="button" onclick="state.pinAuthModal=null; renderApp();" class="text-zinc-500 hover:text-white">✕</button></div><input type="password" maxlength="4" required autofocus value="${state.pinAuthModal.pinInput}" oninput="state.pinAuthModal.pinInput=this.value;" placeholder="••••" class="w-full text-center py-4 bg-zinc-950 border border-amber-500 text-2xl tracking-[0.5em] rounded-xl outline-none"/><button type="submit" class="w-full py-3.5 bg-amber-500 text-black font-black text-sm rounded-xl">Autorizar</button></form></div>`;
       }
 
+      if (state.editingTicketModal) {
+        const et = state.editingTicketModal;
+        html += `<div class="fixed inset-0 z-[94] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print"><form onsubmit="saveEditedTicket(event)" class="bg-zinc-900 border border-zinc-700 text-white rounded-3xl max-w-sm w-full p-6 space-y-4 animate-fade shadow-2xl"><div class="flex justify-between items-center border-b border-zinc-800 pb-3"><h3 class="font-black text-base">✏️ Modificar Ticket ${et.id}</h3><button type="button" onclick="state.editingTicketModal=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button></div><div class="space-y-3 text-xs"><div><label class="block text-zinc-400 font-bold mb-1">Total Cobrado ($ MXN)</label><input type="number" required value="${et.total}" oninput="state.editingTicketModal.total=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-emerald-400 font-black text-base" /></div><div><label class="block text-zinc-400 font-bold mb-1">Método de Pago</label><select onchange="state.editingTicketModal.method=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold"><option value="EFECTIVO" ${et.method==='EFECTIVO'?'selected':''}>EFECTIVO</option><option value="TARJETA" ${et.method==='TARJETA'?'selected':''}>TARJETA</option><option value="TRANSFERENCIA" ${et.method==='TRANSFERENCIA'?'selected':''}>TRANSFERENCIA</option></select></div></div><button type="submit" class="w-full py-3.5 rounded-xl bg-pink-600 text-white font-black text-xs shadow-lg">Guardar Cambios</button></form></div>`;
+      }
+
+      /* MODAL REPARADO DE EDICIÓN DE CLIENTA VIP */
       if (state.editingClientModal) {
         const c = state.editingClientModal;
         html += `
           <div class="fixed inset-0 z-[96] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 no-print">
-            <form onsubmit="event.preventDefault(); state.vipClients[${c.idx}].name=state.editingClientModal.name.trim(); state.vipClients[${c.idx}].phone=state.editingClientModal.phone.trim(); state.vipClients[${c.idx}].email=state.editingClientModal.email.trim(); saveStored('rb_boutique_vip_clients', state.vipClients); if(state.currentUser && state.currentUser.id===state.vipClients[${c.idx}].id){ state.currentUser=state.vipClients[${c.idx}]; saveStored('rb_boutique_current_user', state.currentUser); } state.editingClientModal=null; showToast('✅ Datos de clienta VIP actualizados'); renderApp();" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-6 space-y-4 animate-fade shadow-2xl">
+            <form onsubmit="saveEditedVipClient(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-6 space-y-4 animate-fade shadow-2xl">
               <div class="flex justify-between items-center border-b border-zinc-800 pb-3">
                 <div>
                   <span class="text-[10px] font-black text-pink-400 uppercase">Club VIP RB Boutique</span>
@@ -2104,9 +2463,10 @@
         `;
       }
 
+      /* BANDEJA DE NOTIFICACIONES CON LIMPIEZA INDIVIDUAL (🗑️) Y GLOBAL */
       if (state.showNotificationsModal) {
-        const activeGift = state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift) ? state.currentUser.vipGift : null;
-        const activeTickets = getClientActiveTickets();
+        const activeGift = state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift) && !state.currentUser.vipGift.notifDismissed ? state.currentUser.vipGift : null;
+        const activeTickets = getClientActiveTickets().filter(t => !t.notifDismissedByClient);
         html += `
           <div class="fixed inset-0 z-[95] bg-black/80 backdrop-blur-sm flex items-start justify-end p-4 pt-16 no-print">
             <div class="bg-white text-zinc-900 rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-zinc-200 space-y-4 animate-fade">
@@ -2118,23 +2478,33 @@
                     <p class="text-[10px] text-zinc-500">Premios, giros de ruleta y mensajes</p>
                   </div>
                 </div>
-                <button onclick="state.showNotificationsModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 flex items-center justify-center">✕</button>
+                <div class="flex items-center gap-1.5">
+                  ${(activeGift || activeTickets.length > 0) ? `
+                    <button onclick="clearAllClientNotifications()" class="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-[10px] font-black flex items-center gap-1 transition" title="Limpiar toda la bandeja">
+                      <span>🗑️</span><span>Limpiar</span>
+                    </button>
+                  ` : ''}
+                  <button onclick="state.showNotificationsModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 flex items-center justify-center">✕</button>
+                </div>
               </div>
 
               <div class="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
                 ${!activeGift && activeTickets.length === 0 ? `
                   <div class="py-10 text-center space-y-2">
                     <div class="text-3xl">✨</div>
-                    <p class="text-xs font-bold text-zinc-700">No tienes notificaciones pendientes</p>
+                    <p class="text-xs font-bold text-zinc-700">Tu bandeja de notificaciones está limpia</p>
                     <p class="text-[11px] text-zinc-400">Cuando recibas una Ruleta VIP, un cupón o respuesta de Soporte aparecerá aquí.</p>
                   </div>
                 ` : ''}
 
                 ${activeGift ? `
-                  <div class="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 via-black to-pink-950 text-white space-y-3 shadow-lg border border-pink-500/40">
-                    <div class="flex items-center justify-between">
+                  <div class="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 via-black to-pink-950 text-white space-y-3 shadow-lg border border-pink-500/40 relative">
+                    <div class="flex items-center justify-between gap-2">
                       <span class="px-2.5 py-0.5 rounded-full bg-pink-600 text-white text-[9px] font-black uppercase">${activeGift.isWheel && !activeGift.spun ? '🎡 Giro de Ruleta Disponible' : '🎁 Cupón VIP Activo'}</span>
-                      <span class="text-[11px] font-mono font-black text-rose-300">⏳ <span class="vip-countdown-timer">${formatRemainingTime(activeGift.expiresAt)}</span></span>
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-[11px] font-mono font-black text-rose-300">⏳ <span class="vip-countdown-timer">${formatRemainingTime(activeGift.expiresAt)}</span></span>
+                        <button onclick="dismissGiftNotification()" class="w-6 h-6 rounded-lg bg-white/10 hover:bg-rose-600/40 text-zinc-300 hover:text-white flex items-center justify-center text-xs transition" title="Ocultar notificación">🗑️</button>
+                      </div>
                     </div>
                     <p class="text-xs font-bold text-zinc-200">${activeGift.message}</p>
                     ${activeGift.isWheel && !activeGift.spun ? `
@@ -2154,7 +2524,10 @@
                   <div class="p-3.5 rounded-2xl bg-purple-50 border border-purple-200 space-y-2 text-xs">
                     <div class="flex items-center justify-between">
                       <span class="font-black text-purple-900 flex items-center gap-1">💬 Soporte RB Boutique</span>
-                      ${t.unreadByClient ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">Nueva Respuesta</span>` : `<span class="text-[10px] text-purple-600 font-bold">Chat Activo</span>`}
+                      <div class="flex items-center gap-1.5">
+                        ${t.unreadByClient ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">Nueva Respuesta</span>` : `<span class="text-[10px] text-purple-600 font-bold">Chat Activo</span>`}
+                        <button onclick="dismissTicketNotification('${t.id}')" class="w-6 h-6 rounded-lg bg-purple-100 hover:bg-rose-100 text-purple-700 hover:text-rose-600 flex items-center justify-center text-xs transition" title="Limpiar notificación">🗑️</button>
+                      </div>
                     </div>
                     <p class="text-zinc-700 line-clamp-2">${(Array.isArray(t.messages) && t.messages.length > 0) ? t.messages[t.messages.length - 1].text : t.message}</p>
                     <button onclick="state.showNotificationsModal=false; state.isSupportChatOpen=true; openClientFloatingChat(); state.isSupportChatOpen=true; renderApp();" class="w-full py-2 rounded-xl bg-black text-white font-black text-[11px]">Abrir Burbuja de Chat</button>
@@ -2240,12 +2613,12 @@
 
       if (state.lastReceipt) {
         const r = state.lastReceipt;
-        html += `<div class="fixed inset-0 z-[85] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print"><div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-sm w-full p-6 text-white my-8 animate-fade shadow-2xl space-y-4"><div class="flex justify-between items-center border-b border-zinc-800 pb-3"><h3 class="font-black text-base">🧾 Ticket Oficial</h3><button onclick="state.lastReceipt=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button></div><div id="printable-area" class="bg-white text-black p-5 rounded-2xl font-mono text-xs shadow-inner space-y-2.5"><div class="text-center border-b-2 border-dashed border-black pb-2.5"><div class="font-black text-base tracking-widest">RB BOUTIQUE</div><div class="text-[10px]">Folio: <strong>${r.id}</strong> • ${r.time}</div></div><div class="space-y-1.5 border-b border-dashed border-black pb-2.5">${(r.itemsList || []).map(it => `<div class="flex justify-between"><span>${it.qty}x ${it.name.slice(0, 18)} (${it.size})</span><span class="font-bold">$${it.price * it.qty}</span></div>`).join('')}</div><div class="space-y-1 text-[11px]"><div class="flex justify-between"><span>Método Pago:</span><span>${r.method}</span></div>${r.shippingFee > 0 ? `<div class="flex justify-between"><span>Costo Envío:</span><span>+$${r.shippingFee}</span></div>` : ''}${r.terminalFee > 0 ? `<div class="flex justify-between font-bold"><span>Comisión Terminal (5%):</span><span>+$${r.terminalFee}</span></div>` : ''}<div class="flex justify-between font-black text-sm border-t border-black pt-1.5 mt-1"><span>TOTAL COBRADO:</span><span>$${r.total} MXN</span></div></div><div class="text-center text-[9px] pt-2 border-t border-dashed border-black">¡Gracias por tu preferencia!</div></div><div class="grid grid-cols-2 gap-2.5 no-print"><button onclick="window.print()" class="py-3 bg-zinc-800 text-white font-black text-xs rounded-xl">🖨️ Ticket</button><button onclick="window.print()" class="py-3 bg-pink-600 text-white font-black text-xs rounded-xl">📄 PDF</button></div></div></div>`;
+        html += `<div class="fixed inset-0 z-[85] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print"><div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-sm w-full p-6 text-white my-8 animate-fade shadow-2xl space-y-4"><div class="flex justify-between items-center border-b border-zinc-800 pb-3"><h3 class="font-black text-base">🧾 Ticket Oficial</h3><button onclick="state.lastReceipt=null; renderApp();" class="text-zinc-400 hover:text-white">✕</button></div><div id="printable-area" class="bg-white text-black p-5 rounded-2xl font-mono text-xs shadow-inner space-y-2.5"><div class="text-center border-b-2 border-dashed border-black pb-2.5"><div class="font-black text-base tracking-widest">RB BOUTIQUE</div><div class="text-[10px]">Folio: <strong>${r.id}</strong> • ${r.date ? r.date + ' ' : ''}${r.time}</div></div><div class="space-y-1.5 border-b border-dashed border-black pb-2.5">${(r.itemsList || []).map(it => `<div class="flex justify-between"><span>${it.qty}x ${it.name.slice(0, 18)} (${it.size})</span><span class="font-bold">$${it.price * it.qty}</span></div>`).join('')}</div><div class="space-y-1 text-[11px]"><div class="flex justify-between"><span>Método Pago:</span><span>${r.method}</span></div>${r.shippingFee > 0 ? `<div class="flex justify-between"><span>Costo Envío:</span><span>+$${r.shippingFee}</span></div>` : ''}${r.terminalFee > 0 ? `<div class="flex justify-between font-bold"><span>Comisión Terminal (5%):</span><span>+$${r.terminalFee}</span></div>` : ''}<div class="flex justify-between font-black text-sm border-t border-black pt-1.5 mt-1"><span>TOTAL COBRADO:</span><span>$${r.total} MXN</span></div></div><div class="text-center text-[9px] pt-2 border-t border-dashed border-black">¡Gracias por tu preferencia!</div></div><div class="grid grid-cols-2 gap-2.5 no-print"><button onclick="window.print()" class="py-3 bg-zinc-800 text-white font-black text-xs rounded-xl">🖨️ Ticket</button><button onclick="window.print()" class="py-3 bg-pink-600 text-white font-black text-xs rounded-xl">📄 PDF</button></div></div></div>`;
       }
 
       if (state.showCorteModal) {
         const c = getCorteZCalculations();
-        html += `<div class="fixed inset-0 z-[85] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print"><div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-md w-full p-6 text-white my-8 animate-fade shadow-2xl"><div class="flex justify-between items-center border-b border-zinc-800 pb-3 mb-4"><h3 class="font-black text-lg flex items-center gap-2">🖨️ Corte Z</h3><button onclick="state.showCorteModal=false; renderApp();" class="text-zinc-500 hover:text-white">✕</button></div><div id="printable-area" class="bg-white text-black p-6 rounded-2xl font-mono text-xs shadow-inner space-y-3"><div class="text-center border-b-2 border-dashed border-black pb-3 font-bold"><span class="text-base font-black">RB BOUTIQUE</span><br/>CORTE DEL DÍA (Z)<br/><span class="text-[10px] font-normal">${new Date().toLocaleDateString()}</span></div><div class="space-y-1.5 border-b border-dashed border-black pb-3"><div class="flex justify-between"><span>Efectivo:</span> <span class="font-bold">$${c.totalEfectivoVentas} MXN</span></div><div class="flex justify-between"><span>Tarjeta (Terminal):</span> <span class="font-bold">$${c.totalTarjetaVentas} MXN</span></div><div class="flex justify-between"><span>Transferencia:</span> <span class="font-bold">$${c.totalTransferenciaVentas} MXN</span></div><div class="flex justify-between font-black text-sm pt-1 border-t border-black"><span>VENTA TOTAL:</span> <span>$${c.totalVentasDia} MXN</span></div></div><div class="space-y-1.5 border-b-2 border-dashed border-black pb-3"><div class="font-black text-[11px] uppercase mb-1">Caja Chica:</div><div class="flex justify-between"><span>Fondo Inicial:</span> <span>+$${c.openingCash} MXN</span></div><div class="flex justify-between"><span>Cobros Efectivo:</span> <span>+$${c.totalEfectivoVentas} MXN</span></div><div class="flex justify-between"><span>Retiros Autorizados:</span> <span>-$${c.totalExpenses} MXN</span></div><div class="flex justify-between py-2 font-black text-sm bg-zinc-100 px-2 rounded-lg mt-1"><span>EFECTIVO EN CAJÓN:</span> <span>$${c.exactPhysicalCashInDrawer} MXN</span></div></div></div><button onclick="window.print()" class="w-full py-4 mt-5 bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm rounded-xl shadow-lg no-print">🖨️ Imprimir Corte</button></div></div>`;
+        html += `<div class="fixed inset-0 z-[85] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print"><div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-md w-full p-6 text-white my-8 animate-fade shadow-2xl"><div class="flex justify-between items-center border-b border-zinc-800 pb-3 mb-4"><h3 class="font-black text-lg flex items-center gap-2">🖨️ Corte Z del Día (${c.todayDateStr})</h3><button onclick="state.showCorteModal=false; renderApp();" class="text-zinc-500 hover:text-white">✕</button></div><div id="printable-area" class="bg-white text-black p-6 rounded-2xl font-mono text-xs shadow-inner space-y-3"><div class="text-center border-b-2 border-dashed border-black pb-3 font-bold"><span class="text-base font-black">RB BOUTIQUE</span><br/>CORTE DEL DÍA (Z)<br/><span class="text-[10px] font-normal">Fecha exclusiva: ${c.todayDateStr} (${c.validSalesCount} ventas hoy)</span></div><div class="space-y-1.5 border-b border-dashed border-black pb-3"><div class="flex justify-between"><span>Efectivo (Hoy):</span> <span class="font-bold">$${c.totalEfectivoVentas} MXN</span></div><div class="flex justify-between"><span>Tarjeta Terminal (Hoy):</span> <span class="font-bold">$${c.totalTarjetaVentas} MXN</span></div><div class="flex justify-between"><span>Transferencia (Hoy):</span> <span class="font-bold">$${c.totalTransferenciaVentas} MXN</span></div><div class="flex justify-between font-black text-sm pt-1 border-t border-black"><span>VENTA TOTAL DEL DÍA:</span> <span>$${c.totalVentasDia} MXN</span></div></div><div class="space-y-1.5 border-b-2 border-dashed border-black pb-3"><div class="font-black text-[11px] uppercase mb-1">Caja Chica (${c.todayDateStr}):</div><div class="flex justify-between"><span>Fondo Inicial:</span> <span>+$${c.openingCash} MXN</span></div><div class="flex justify-between"><span>Cobros Efectivo Hoy:</span> <span>+$${c.totalEfectivoVentas} MXN</span></div><div class="flex justify-between"><span>Retiros Autorizados Hoy:</span> <span>-$${c.totalExpenses} MXN</span></div><div class="flex justify-between py-2 font-black text-sm bg-zinc-100 px-2 rounded-lg mt-1"><span>EFECTIVO EN CAJÓN:</span> <span>$${c.exactPhysicalCashInDrawer} MXN</span></div></div></div><button onclick="window.print()" class="w-full py-4 mt-5 bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm rounded-xl shadow-lg no-print">🖨️ Imprimir Corte del Día</button></div></div>`;
       }
 
       if (state.selectedProductModal) {
@@ -2288,7 +2661,7 @@
               </div>
               ${!state.regForm.googleVerified ? `
                 <div class="space-y-3.5 text-center py-2">
-                  <p class="text-xs text-zinc-300 leading-relaxed">Primero vincula tu cuenta oficial de Google y enseguida confirma tu nombre y WhatsApp:</p>
+                  <p class="text-xs text-zinc-300 leading-relaxed">Paso 1 de 2: Vincula tu cuenta oficial de Google para validar tu acceso y pasar al registro de WhatsApp:</p>
                   <button type="button" onclick="loginWithGoogle()" class="w-full py-4 px-4 rounded-2xl bg-white text-zinc-900 font-black text-xs shadow-xl flex items-center justify-center gap-3 hover:scale-[1.02] transition">
                     <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.9C3.5 21.4 7.4 24 12 24z"/></svg>
                     <span>1. Vincular mi Cuenta de Google</span>
@@ -2297,7 +2670,7 @@
               ` : `
                 <form onsubmit="submitCompleteRegistration(event)" class="space-y-3 text-xs animate-fade">
                   <div class="px-3 py-2 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 flex items-center justify-between">
-                    <span class="truncate font-bold">✓ ${state.regForm.email}</span>
+                    <span class="truncate font-bold">✓ Paso 2: ${state.regForm.email}</span>
                     <button type="button" onclick="state.regForm.googleVerified=false; renderApp();" class="text-[10px] underline text-zinc-300 ml-2">Cambiar</button>
                   </div>
                   <div>
@@ -2320,18 +2693,19 @@
         `;
       }
 
+      /* BURBUJA DE CHAT FLOTANTE CON MOTOR DE DESINTEGRACIÓN EN PARTÍCULAS (ESTILO TELEGRAM / THANOS) */
       if (state.appMode === 'storefront' && state.authStatus === 'registered' && state.currentUser) {
         const activeTickets = getClientActiveTickets();
-        if (activeTickets.length > 0) {
-          const currentTicket = activeTickets[0];
-          const hasUnreadReply = Boolean(currentTicket.unreadByClient);
+        if (activeTickets.length > 0 || state.isBubbleDisintegrating) {
+          const currentTicket = activeTickets[0] || { messages: [], unreadByClient: false };
+          const hasUnreadReply = Boolean(currentTicket.unreadByClient) && !state.isBubbleDisintegrating;
           const chatMessages = Array.isArray(currentTicket.messages) && currentTicket.messages.length > 0
             ? currentTicket.messages
-            : [{ sender: 'client', text: currentTicket.message, time: currentTicket.date || '' }];
+            : [{ sender: 'client', text: currentTicket.message || '', time: currentTicket.date || '' }];
 
           html += `
             <div class="fixed bottom-20 right-4 z-[88] flex flex-col items-end no-print">
-              ${state.isSupportChatOpen ? `
+              ${(state.isSupportChatOpen && !state.isBubbleDisintegrating) ? `
                 <div class="mb-3 w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden animate-fade flex flex-col max-h-[420px]">
                   <div class="bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white p-4 flex items-center justify-between">
                     <div class="flex items-center gap-2.5">
@@ -2362,8 +2736,8 @@
                 </div>
               ` : ''}
 
-              <button onclick="openClientFloatingChat()" class="relative w-14 h-14 rounded-full bg-gradient-to-tr from-pink-600 to-rose-500 text-white shadow-[0_8px_25px_rgba(225,29,72,0.5)] flex items-center justify-center text-2xl hover:scale-105 transition border-2 border-white">
-                💬
+              <button id="floating-support-bubble-btn" onclick="openClientFloatingChat()" class="relative w-14 h-14 rounded-full bg-gradient-to-tr from-pink-600 to-rose-500 text-white shadow-[0_8px_25px_rgba(225,29,72,0.5)] flex items-center justify-center text-2xl hover:scale-105 transition border-2 border-white ${state.isBubbleDisintegrating ? 'bubble-disintegrating-core' : ''}">
+                ${state.isBubbleDisintegrating ? '' : '💬'}
                 ${hasUnreadReply ? `<span class="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-black text-white text-[9px] font-black uppercase border border-white animate-bounce">Nuevo</span>` : ''}
               </button>
             </div>
