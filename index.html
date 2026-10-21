@@ -1573,15 +1573,12 @@
           <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-zinc-200">
             ${isGuest ? `<div class="bg-black text-pink-400 px-3 py-2 text-center text-[11px] font-bold">Modo Invitado • <button onclick="loginWithGoogle()" class="underline text-white font-black ml-1">Conecta tu Google aquí para activar 10% OFF VIP</button></div>` : `<div class="bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white px-3 py-1.5 text-center text-[10px] font-bold tracking-wide">✨ <span class="text-pink-400 font-black">MIEMBRO VIP ACTIVO:</span> 10% OFF automático en tu carrito</div>`}
             <div class="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between">
-              <button onclick="handleSecretLogoTap()" class="text-left flex items-center gap-2.5 focus:outline-none group">
-                <div class="w-11 h-11 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-zinc-200/50 flex items-center justify-center shadow-md relative overflow-hidden group-hover:border-pink-300 transition">
+              <button onclick="handleSecretLogoTap()" class="text-left flex items-center gap-3 focus:outline-none group">
+                <div class="w-11 h-11 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-zinc-200/50 flex items-center justify-center shadow-md relative overflow-hidden group-hover:border-pink-400 transition">
                   <div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div>
                   <span class="font-serif italic font-black text-[22px] text-white tracking-tighter pr-0.5 mt-0.5 shadow-sm uppercase">${state.storeConfig.brandInitials || 'RB'}</span>
                 </div>
-                <div class="flex flex-col justify-center">
-                  <span class="font-serif text-[20px] text-black block leading-[0.9] tracking-widest font-black uppercase">${state.storeConfig.brandName || 'RB BOUTIQUE'}</span>
-                  <span class="block text-[8px] font-black text-pink-600 tracking-[0.2em] mt-0.5 uppercase">${state.storeConfig.brandSubtitle || 'Boutique'}</span>
-                </div>
+                <span class="font-serif text-xl text-black tracking-widest font-black uppercase">${state.storeConfig.brandName || 'BOUTIQUE'}</span>
               </button>
               <div class="flex items-center gap-1.5 shrink-0">
                 <!-- CAMPANA DE NOTIFICACIONES VIP -->
