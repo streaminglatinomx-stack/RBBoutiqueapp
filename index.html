@@ -1484,24 +1484,18 @@
           
           <div class="relative z-10 w-full pt-14 pb-6 flex flex-col items-center text-center px-4 animate-fade">
             <button onclick="handleSecretLogoTap()" class="flex flex-col items-center gap-3 focus:outline-none group">
-              <!-- Emblema de Lujo -->
               <div class="relative w-24 h-24 flex items-center justify-center">
-                <!-- Anillo exterior dorado/rosado sutil -->
                 <div class="absolute inset-0 rounded-full border border-pink-300/30 group-hover:scale-105 transition duration-500"></div>
-                <!-- Círculo interior con degradado oscuro elegante -->
                 <div class="w-20 h-20 rounded-full bg-gradient-to-br from-zinc-900 via-black to-zinc-900 border border-zinc-700/50 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.15)] group-hover:shadow-[0_0_40px_rgba(236,72,153,0.3)] transition duration-500 relative overflow-hidden">
-                  <!-- Efecto de brillo de cristal superior -->
                   <div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/10 to-transparent rounded-t-full"></div>
-                  <!-- Letras RB estilizadas -->
-                  <span class="font-serif italic font-black text-4xl text-transparent bg-clip-text bg-gradient-to-br from-white via-pink-100 to-pink-300 tracking-tighter pr-1">RB</span>
+                  <span class="font-serif italic font-black text-4xl text-transparent bg-clip-text bg-gradient-to-br from-white via-pink-100 to-pink-300 tracking-tighter pr-1">${state.storeConfig.brandInitials || 'RB'}</span>
                 </div>
               </div>
-              <!-- Textos refinados -->
               <div class="mt-1 text-center">
-                <span class="font-serif text-3xl block leading-none text-white font-light tracking-[0.15em] ml-1">RB BOUTIQUE</span>
+                <span class="font-serif text-3xl block leading-none text-white font-light tracking-[0.15em] ml-1 uppercase">${state.storeConfig.brandName || 'RB BOUTIQUE'}</span>
                 <div class="flex items-center justify-center gap-2 mt-3">
                   <span class="w-6 h-[1px] bg-gradient-to-r from-transparent to-pink-500/50"></span>
-                  <span class="block text-[10px] font-extrabold tracking-[0.3em] text-pink-300 uppercase">Estilo Exclusivo</span>
+                  <span class="block text-[10px] font-extrabold tracking-[0.3em] text-pink-300 uppercase">${state.storeConfig.brandSubtitle || 'Moda y Estilo'}</span>
                   <span class="w-6 h-[1px] bg-gradient-to-l from-transparent to-pink-500/50"></span>
                 </div>
               </div>
@@ -1580,15 +1574,13 @@
             ${isGuest ? `<div class="bg-black text-pink-400 px-3 py-2 text-center text-[11px] font-bold">Modo Invitado • <button onclick="loginWithGoogle()" class="underline text-white font-black ml-1">Conecta tu Google aquí para activar 10% OFF VIP</button></div>` : `<div class="bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white px-3 py-1.5 text-center text-[10px] font-bold tracking-wide">✨ <span class="text-pink-400 font-black">MIEMBRO VIP ACTIVO:</span> 10% OFF automático en tu carrito</div>`}
             <div class="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between">
               <button onclick="handleSecretLogoTap()" class="text-left flex items-center gap-2.5 focus:outline-none group">
-                <!-- Ícono circular minimalista -->
-                <div class="w-11 h-11 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-zinc-200/50 flex items-center justify-center shadow-md relative overflow-hidden group-hover:border-pink-200 transition">
+                <div class="w-11 h-11 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-zinc-200/50 flex items-center justify-center shadow-md relative overflow-hidden group-hover:border-pink-300 transition">
                   <div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div>
-                  <span class="font-serif italic font-black text-[22px] text-white tracking-tighter pr-0.5 mt-0.5 shadow-sm">RB</span>
+                  <span class="font-serif italic font-black text-[22px] text-white tracking-tighter pr-0.5 mt-0.5 shadow-sm uppercase">${state.storeConfig.brandInitials || 'RB'}</span>
                 </div>
-                <!-- Textos con tipografía fina -->
                 <div class="flex flex-col justify-center">
-                  <span class="font-serif text-[22px] text-black block leading-[0.9] tracking-widest font-light">RB</span>
-                  <span class="block text-[8px] font-black text-pink-600 tracking-[0.2em] mt-0.5 uppercase">Boutique</span>
+                  <span class="font-serif text-[20px] text-black block leading-[0.9] tracking-widest font-black uppercase">${state.storeConfig.brandName || 'RB BOUTIQUE'}</span>
+                  <span class="block text-[8px] font-black text-pink-600 tracking-[0.2em] mt-0.5 uppercase">${state.storeConfig.brandSubtitle || 'Boutique'}</span>
                 </div>
               </button>
               <div class="flex items-center gap-1.5 shrink-0">
@@ -1669,7 +1661,7 @@
             <main class="max-w-xl mx-auto px-4 py-6 space-y-4 animate-fade">
               ${isGuest ? `
                 <div class="p-7 text-center bg-zinc-900 text-white rounded-3xl space-y-4 shadow-xl">
-                  <div class="w-16 h-16 rounded-2xl bg-black border-2 border-pink-500 flex items-center justify-center font-black text-2xl mx-auto">RB</div>
+                  <div class="w-16 h-16 rounded-full bg-gradient-to-br from-zinc-900 to-black border-2 border-pink-500/50 flex items-center justify-center font-serif italic font-black text-3xl text-white mx-auto shadow-[0_0_15px_rgba(236,72,153,0.3)] relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div>
                   <h2 class="font-black text-lg">Inicia Sesión en tu Cuenta VIP</h2>
                   <p class="text-xs text-zinc-300 leading-relaxed">Conecta tu cuenta oficial de Google para obtener <strong>10% de descuento automático</strong>, gestionar tus direcciones, ver tus cupones y ganar premios por invitar amigas.</p>
                   <button onclick="loginWithGoogle()" class="w-full py-4 px-4 rounded-2xl bg-white text-zinc-900 font-black text-sm shadow-xl flex items-center justify-center gap-3 hover:scale-[1.01] transition">
@@ -2111,7 +2103,7 @@
           <header class="sticky top-0 z-40 bg-zinc-900/95 backdrop-blur border-b border-zinc-800 px-4 py-3 shadow-lg">
             <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center font-black text-sm text-white shadow-md border border-pink-400/30">RB</div>
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-zinc-600 flex items-center justify-center font-serif italic font-black text-lg text-white shadow-lg relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div>
                 <div><h1 class="font-black text-base text-white leading-tight">RB BOUTIQUE • PUNTO DE VENTA</h1><p class="text-[10px] text-zinc-400">Panel Administrativo Central</p></div>
               </div>
               <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
@@ -2177,7 +2169,32 @@
                   </div>
                 </div>
               </div>
-
+              
+              <!-- IDENTIDAD DE MARCA (LOGO VIP) -->
+              <div class="p-6 bg-zinc-900 border border-pink-500/30 rounded-3xl space-y-4 shadow-lg mb-6">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-10 h-10 rounded-2xl bg-pink-500/20 text-pink-400 flex items-center justify-center text-lg">✨</div>
+                  <div>
+                    <h3 class="font-black text-white text-base">Identidad de Marca (Logo Premium)</h3>
+                    <p class="text-[11px] text-zinc-400">Edita tus iniciales, nombre y frase. Se actualizará en toda la App automáticamente.</p>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-1">
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Iniciales (Max. 3 letras)</label>
+                    <input type="text" value="${(state.storeConfig.brandInitials || 'RB').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.brandInitials) state.storeConfig.brandInitials=''; state.storeConfig.brandInitials=this.value;" maxlength="3" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-serif italic font-black text-center text-lg" />
+                  </div>
+                  <div> 
+                    <label class="text-[10px] font-bold text-pink-400 uppercase block mb-1">Nombre Principal</label>
+                    <input type="text" value="${(state.storeConfig.brandName || 'RB BOUTIQUE').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.brandName) state.storeConfig.brandName=''; state.storeConfig.brandName=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-pink-500/50 text-white font-black uppercase" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Frase Corta o Subtítulo</label>
+                    <input type="text" value="${(state.storeConfig.brandSubtitle || 'Moda y Estilo').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.brandSubtitle) state.storeConfig.brandSubtitle=''; state.storeConfig.brandSubtitle=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-pink-300 font-bold uppercase" />
+                  </div>
+                </div>
+              </div>
+              
               <!-- PERSONALIZAR PORTADA -->
               <div class="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl space-y-4 shadow-lg">
                 <div class="flex flex-wrap items-center justify-between gap-2">
@@ -2456,7 +2473,7 @@
       }
 
       if (state.showAdminLoginModal) {
-        html += `<div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-xl bg-black border-2 border-pink-500 text-white flex items-center justify-center font-black text-xl">RB</div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; state.adminUser=''; state.adminPass=''; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="space-y-4"><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Usuario</label><input type="text" required value="${state.adminUser}" oninput="state.adminUser=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Contraseña</label><input type="password" required value="${state.adminPass}" oninput="state.adminPass=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div></div><button type="submit" class="w-full py-4 rounded-xl bg-pink-600 font-black text-sm text-white shadow-[0_0_20px_rgba(219,39,119,0.3)]">Entrar al Punto de Venta</button></form></div>`;
+        html += `<div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-pink-500/50 text-white flex items-center justify-center font-serif italic font-black text-2xl relative overflow-hidden shadow-[0_0_15px_rgba(236,72,153,0.3)]"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; state.adminUser=''; state.adminPass=''; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="space-y-4"><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Usuario</label><input type="text" required value="${state.adminUser}" oninput="state.adminUser=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Contraseña</label><input type="password" required value="${state.adminPass}" oninput="state.adminPass=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div></div><button type="submit" class="w-full py-4 rounded-xl bg-pink-600 font-black text-sm text-white shadow-[0_0_20px_rgba(219,39,119,0.3)]">Entrar al Punto de Venta</button></form></div>`;
       }
 
       if (state.pinAuthModal) {
@@ -2682,7 +2699,7 @@
 
       if (state.showPwaInstallModal) {
         html += `
-          <div class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4 no-print"><div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-md w-full p-6 space-y-5 text-white shadow-2xl animate-fade"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-2xl bg-black border-2 border-pink-500 flex items-center justify-center shadow-lg"><span class="font-black text-base text-white">RB</span></div><div><span class="text-[9px] font-black uppercase text-pink-400 tracking-wider">APP OFICIAL</span><h3 class="font-black text-base">Instalar RB Boutique</h3></div></div><button onclick="state.showPwaInstallModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl text-xs text-zinc-300">Instala el acceso directo oficial en tu pantalla de inicio para entrar rápido y asegurar tus regalos VIP.</div>${state.installGuidePlatform === 'ios' ? `<div class="space-y-3"><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">1</div><div class="text-xs"><p class="font-bold">Toca el ícono de Compartir <span class="bg-zinc-800 text-sky-400 px-1.5 py-0.5 rounded ml-1">⬆️</span></p><p class="text-[10px] text-zinc-500">En la barra inferior de Safari.</p></div></div><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">2</div><div class="text-xs"><p class="font-bold">Selecciona "Agregar a inicio" <span class="bg-zinc-800 px-1.5 py-0.5 rounded ml-1">➕</span></p></div></div></div>` : `<div class="space-y-3"><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">1</div><div class="text-xs"><p class="font-bold">Toca el Menú de tu navegador <span class="bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded ml-1">⋮</span></p></div></div><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">2</div><div class="text-xs"><p class="font-bold">Selecciona "Instalar aplicación" o "Agregar a inicio"</p></div></div></div>`}</div></div>
+          <div class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4 no-print"><div class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-md w-full p-6 space-y-5 text-white shadow-2xl animate-fade"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-pink-500/50 flex items-center justify-center shadow-lg relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="font-serif italic font-black text-2xl text-white pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div><div><span class="text-[9px] font-black uppercase text-pink-400 tracking-wider">APP OFICIAL</span><h3 class="font-black text-base">Instalar RB Boutique</h3></div></div><button onclick="state.showPwaInstallModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl text-xs text-zinc-300">Instala el acceso directo oficial en tu pantalla de inicio para entrar rápido y asegurar tus regalos VIP.</div>${state.installGuidePlatform === 'ios' ? `<div class="space-y-3"><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">1</div><div class="text-xs"><p class="font-bold">Toca el ícono de Compartir <span class="bg-zinc-800 text-sky-400 px-1.5 py-0.5 rounded ml-1">⬆️</span></p><p class="text-[10px] text-zinc-500">En la barra inferior de Safari.</p></div></div><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">2</div><div class="text-xs"><p class="font-bold">Selecciona "Agregar a inicio" <span class="bg-zinc-800 px-1.5 py-0.5 rounded ml-1">➕</span></p></div></div></div>` : `<div class="space-y-3"><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">1</div><div class="text-xs"><p class="font-bold">Toca el Menú de tu navegador <span class="bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded ml-1">⋮</span></p></div></div><div class="flex items-center gap-3 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800"><div class="w-8 h-8 rounded-full bg-zinc-800 text-white font-black text-xs flex items-center justify-center">2</div><div class="text-xs"><p class="font-bold">Selecciona "Instalar aplicación" o "Agregar a inicio"</p></div></div></div>`}</div></div>
         `;
       }
 
@@ -2747,7 +2764,7 @@
                 <div class="mb-3 w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden animate-fade flex flex-col max-h-[420px]">
                   <div class="bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white p-4 flex items-center justify-between">
                     <div class="flex items-center gap-2.5">
-                      <div class="w-9 h-9 rounded-2xl bg-pink-600 flex items-center justify-center font-black text-sm shadow">RB</div>
+                      <div class="w-9 h-9 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-pink-500 flex items-center justify-center font-serif italic font-black text-lg text-white shadow relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div>
                       <div>
                         <h4 class="font-black text-xs">Soporte VIP • RB Boutique</h4>
                         <span class="text-[10px] text-emerald-400 font-bold flex items-center gap-1">● Chat en vivo activo</span>
