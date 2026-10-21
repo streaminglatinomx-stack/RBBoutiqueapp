@@ -1483,9 +1483,28 @@
           <div class="absolute inset-0 bg-gradient-to-b from-black/80 via-black/45 to-black/95"></div>
           
           <div class="relative z-10 w-full pt-14 pb-6 flex flex-col items-center text-center px-4 animate-fade">
-            <button onclick="handleSecretLogoTap()" class="flex flex-col items-center gap-1.5 focus:outline-none">
-              <div class="w-20 h-20 rounded-3xl bg-black border-[3px] border-pink-500 flex items-center justify-center font-black text-4xl shadow-2xl">RB</div>
-              <div class="mt-2"><span class="font-black tracking-[0.25em] text-2xl block leading-none text-white">RB BOUTIQUE</span><span class="block text-sm font-extrabold tracking-[0.25em] text-pink-400 mt-2">Moda y estilo</span></div>
+            <button onclick="handleSecretLogoTap()" class="flex flex-col items-center gap-3 focus:outline-none group">
+              <!-- Emblema de Lujo -->
+              <div class="relative w-24 h-24 flex items-center justify-center">
+                <!-- Anillo exterior dorado/rosado sutil -->
+                <div class="absolute inset-0 rounded-full border border-pink-300/30 group-hover:scale-105 transition duration-500"></div>
+                <!-- Círculo interior con degradado oscuro elegante -->
+                <div class="w-20 h-20 rounded-full bg-gradient-to-br from-zinc-900 via-black to-zinc-900 border border-zinc-700/50 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.15)] group-hover:shadow-[0_0_40px_rgba(236,72,153,0.3)] transition duration-500 relative overflow-hidden">
+                  <!-- Efecto de brillo de cristal superior -->
+                  <div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/10 to-transparent rounded-t-full"></div>
+                  <!-- Letras RB estilizadas -->
+                  <span class="font-serif italic font-black text-4xl text-transparent bg-clip-text bg-gradient-to-br from-white via-pink-100 to-pink-300 tracking-tighter pr-1">RB</span>
+                </div>
+              </div>
+              <!-- Textos refinados -->
+              <div class="mt-1 text-center">
+                <span class="font-serif text-3xl block leading-none text-white font-light tracking-[0.15em] ml-1">RB BOUTIQUE</span>
+                <div class="flex items-center justify-center gap-2 mt-3">
+                  <span class="w-6 h-[1px] bg-gradient-to-r from-transparent to-pink-500/50"></span>
+                  <span class="block text-[10px] font-extrabold tracking-[0.3em] text-pink-300 uppercase">Estilo Exclusivo</span>
+                  <span class="w-6 h-[1px] bg-gradient-to-l from-transparent to-pink-500/50"></span>
+                </div>
+              </div>
             </button>
             <button onclick="state.installGuidePlatform = isIOSDevice() ? 'ios' : 'android'; state.showPwaInstallModal = true; renderApp();" class="mt-5 px-6 py-2.5 rounded-full bg-white/15 border border-white/25 text-white text-xs font-black shadow-lg flex items-center gap-2 hover:bg-white/25 transition">📲 <span>Instalar App Oficial</span></button>
           </div>
@@ -1560,9 +1579,17 @@
           <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-zinc-200">
             ${isGuest ? `<div class="bg-black text-pink-400 px-3 py-2 text-center text-[11px] font-bold">Modo Invitado • <button onclick="loginWithGoogle()" class="underline text-white font-black ml-1">Conecta tu Google aquí para activar 10% OFF VIP</button></div>` : `<div class="bg-gradient-to-r from-zinc-950 via-black to-pink-950 text-white px-3 py-1.5 text-center text-[10px] font-bold tracking-wide">✨ <span class="text-pink-400 font-black">MIEMBRO VIP ACTIVO:</span> 10% OFF automático en tu carrito</div>`}
             <div class="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between">
-              <button onclick="handleSecretLogoTap()" class="text-left flex items-center gap-2 focus:outline-none">
-                <span class="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center font-black text-xl shadow">RB</span>
-                <div><span class="font-black text-xl text-black block leading-none">RB</span><span class="block text-[9px] font-extrabold text-pink-600 tracking-wider">BOUTIQUE</span></div>
+              <button onclick="handleSecretLogoTap()" class="text-left flex items-center gap-2.5 focus:outline-none group">
+                <!-- Ícono circular minimalista -->
+                <div class="w-11 h-11 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-zinc-200/50 flex items-center justify-center shadow-md relative overflow-hidden group-hover:border-pink-200 transition">
+                  <div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div>
+                  <span class="font-serif italic font-black text-[22px] text-white tracking-tighter pr-0.5 mt-0.5 shadow-sm">RB</span>
+                </div>
+                <!-- Textos con tipografía fina -->
+                <div class="flex flex-col justify-center">
+                  <span class="font-serif text-[22px] text-black block leading-[0.9] tracking-widest font-light">RB</span>
+                  <span class="block text-[8px] font-black text-pink-600 tracking-[0.2em] mt-0.5 uppercase">Boutique</span>
+                </div>
               </button>
               <div class="flex items-center gap-1.5 shrink-0">
                 <!-- CAMPANA DE NOTIFICACIONES VIP -->
