@@ -223,8 +223,14 @@
             const hadBubbleBefore = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
 
             if (cloudData.rb_boutique_products !== undefined) {
-              state.products = normalizeFirebaseList(cloudData.rb_boutique_products);
-              try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
+              const cloudProds = normalizeFirebaseList(cloudData.rb_boutique_products);
+              // Protegemos el inventario: Si estás en el Panel Administrativo, la nube no sobrescribirá tus prendas locales
+              if (state.appMode !== 'backoffice' || cloudProds.length > state.products.length) {
+                state.products = cloudProds;
+                try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
+              } else if (state.appMode === 'backoffice' && state.products.length > cloudProds.length) {
+                saveStored('rb_boutique_products', state.products); // Fuerza la resincronización hacia Firebase
+              }
             }
             if (cloudData.rb_boutique_sales !== undefined) {
               state.salesHistory = normalizeFirebaseList(cloudData.rb_boutique_sales);
@@ -1353,7 +1359,22 @@
       };
       reader.readAsDataURL(file);
     };
-
+    window.editProduct = function(prodId) {
+      const p = state.products.find(x => x.id === prodId); if (!p) return;
+      
+      const colorName = (p.colors && p.colors[0] && p.colors[0].name) ? p.colors[0].name : 'Negro';
+      const colorHex = (p.colors && p.colors[0] && p.colors[0].hex) ? p.colors[0].hex : '#18181b';
+      
+      state.newProd = { ...p, subcategory: p.subcategory || '', colorName: colorName, colorHex: colorHex, adultSizes: { XS:0,S:0,M:0,L:0,XL:0 }, kidsSizes: { '4':0,'6':0,'8':0,'10':0,'12':0 }, shoeSizes: { '22':0,'23':0,'24':0,'25':0,'26':0,'27':0,'28':0 }, unitallaStock: 0 };
+      
+      const sizes = p.sizes || {};
+      if (p.department === 'Accesorios') state.newProd.unitallaStock = sizes.UNITALLA || 0;
+      else if (p.department === 'Tenis') state.newProd.shoeSizes = { ...state.newProd.shoeSizes, ...sizes };
+      else if (p.department === 'Niñas' || p.department === 'Niños') state.newProd.kidsSizes = { ...state.newProd.kidsSizes, ...sizes };
+      else state.newProd.adultSizes = { ...state.newProd.adultSizes, ...sizes };
+      
+      state.isEditingProduct = true; state.showNewProductModal = true; renderApp();
+    };
     window.submitNewProduct = function (e) {
       e.preventDefault();
       const np = state.newProd;
