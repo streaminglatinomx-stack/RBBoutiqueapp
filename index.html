@@ -13,7 +13,7 @@
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 
   <style>
@@ -187,14 +187,14 @@
     function loadStored(key, fallback) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
     
     function saveStored(key, data) { 
-      window.isSavingData = true; // 🛡️ Levanta el escudo anti-rebote
+      if (key === 'rb_boutique_products') window.isSavingProducts = true;
       try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} 
       if (window.dbRef) { 
         window.dbRef.child(key).set(data)
-          .then(() => { setTimeout(() => { window.isSavingData = false; }, 1500); })
-          .catch(e => { window.isSavingData = false; }); 
+          .then(() => { if (key === 'rb_boutique_products') setTimeout(() => { window.isSavingProducts = false; }, 1200); })
+          .catch(e => { if (key === 'rb_boutique_products') window.isSavingProducts = false; console.error("Firebase sync error:", e); }); 
       } else {
-        window.isSavingData = false;
+        if (key === 'rb_boutique_products') window.isSavingProducts = false;
       }
     }
 
@@ -225,18 +225,20 @@
         });
         
         window.dbRef.on('value', (snapshot) => {
-          if (window.isSavingData) return; // 🛡️ Si estamos guardando, ignora la basura de Firebase
           const cloudData = snapshot.val();
           if (cloudData) {
             const hadBubbleBefore = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
 
-            if (cloudData.rb_boutique_products !== undefined) {
+            if (!window.isSavingProducts && cloudData.rb_boutique_products !== undefined) {
               const cloudProds = normalizeFirebaseList(cloudData.rb_boutique_products);
-              // REGLA LOCAL ESTRICTA: La memoria HTML manda. Firebase YA NO puede borrar ni sobrescribir tus prendas.
-              // Solo tomará datos de la nube si tu memoria local está completamente vacía (por ejemplo, al cambiar de computadora).
-              if (state.products.length === 0 && cloudProds.length > 0) {
+              if (cloudProds.length > 0 || state.appMode !== 'backoffice') {
                 state.products = cloudProds;
                 try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
+              }
+            }
+            if (cloudData.rb_boutique_sales !== undefined) {
+              state.salesHistory = normalizeFirebaseList(cloudData.rb_boutique_sales);
+              try { window.localStorage.setItem('rb_boutique_sales', JSON.stringify(state.salesHistory)); } catch (e) {}
               }
             }
             if (cloudData.rb_boutique_sales !== undefined) {
