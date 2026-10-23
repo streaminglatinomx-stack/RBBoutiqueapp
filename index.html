@@ -187,8 +187,15 @@
     function loadStored(key, fallback) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
     
     function saveStored(key, data) { 
+      window.isSavingData = true; // 🛡️ Levanta el escudo anti-rebote
       try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} 
-      if (window.dbRef) { window.dbRef.child(key).set(data).catch(e => console.error("Firebase sync error:", e)); }
+      if (window.dbRef) { 
+        window.dbRef.child(key).set(data)
+          .then(() => { setTimeout(() => { window.isSavingData = false; }, 1500); })
+          .catch(e => { window.isSavingData = false; }); 
+      } else {
+        window.isSavingData = false;
+      }
     }
 
     const firebaseConfig = {
@@ -218,6 +225,7 @@
         });
         
         window.dbRef.on('value', (snapshot) => {
+          if (window.isSavingData) return; // 🛡️ Si estamos guardando, ignora la basura de Firebase
           const cloudData = snapshot.val();
           if (cloudData) {
             const hadBubbleBefore = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
