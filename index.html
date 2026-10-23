@@ -14,6 +14,7 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 
   <style>
@@ -187,7 +188,7 @@
     function loadStored(key, fallback) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
     
     function saveStored(key, data) { 
-      window.isSavingData = true; // 🛡️ Levanta el escudo anti-rebote
+      if (key !== 'rb_boutique_visits') window.isSavingData = true; // 🛡️ Levanta el escudo anti-rebote
       try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} 
       if (window.dbRef) { 
         window.dbRef.child(key).set(data)
@@ -234,7 +235,7 @@
               const cloudProds = normalizeFirebaseList(cloudData.rb_boutique_products);
               // REGLA LOCAL ESTRICTA: La memoria HTML manda. Firebase YA NO puede borrar ni sobrescribir tus prendas.
               // Solo tomará datos de la nube si tu memoria local está completamente vacía (por ejemplo, al cambiar de computadora).
-              if (state.products.length === 0 && cloudProds.length > 0) {
+              if (cloudProds.length > 0) {
                 state.products = cloudProds;
                 try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
               }
