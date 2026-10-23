@@ -232,9 +232,8 @@
 
             if (cloudData.rb_boutique_products !== undefined) {
               const cloudProds = normalizeFirebaseList(cloudData.rb_boutique_products);
-              // REGLA LOCAL ESTRICTA: La memoria HTML manda. Firebase YA NO puede borrar ni sobrescribir tus prendas.
-              // Solo tomará datos de la nube si tu memoria local está completamente vacía (por ejemplo, al cambiar de computadora).
-              if (state.products.length === 0 && cloudProds.length > 0) {
+              // Nueva regla: Sincroniza siempre que haya datos en la nube o localmente
+              if (cloudProds.length > 0 || state.products.length > 0) {
                 state.products = cloudProds;
                 try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
               }
@@ -866,11 +865,11 @@
       const provider = new firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
 
-      // Vía principal única y síncrona: signInWithPopup
-      window.auth.signInWithPopup(provider).then((result) => {
-        if (result && result.user) {
-          handleGoogleUserAuthenticated(result.user);
-        }
+      // Se usa signInWithRedirect para garantizar compatibilidad móvil y evitar bloqueos de popups
+      window.auth.signInWithRedirect(provider).catch((err) => {
+        showToast('Error de conexión con Google', 'error');
+      });
+    };
       }).catch((err) => {
         console.warn("Google Popup aviso:", err);
         if (err && (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request')) {
