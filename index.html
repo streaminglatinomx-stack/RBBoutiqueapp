@@ -222,8 +222,14 @@
           if (cloudData) {
             const hadBubbleBefore = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
 
-            state.products = normalizeFirebaseList(cloudData.rb_boutique_products);
-            state.salesHistory = normalizeFirebaseList(cloudData.rb_boutique_sales);
+            if (cloudData.rb_boutique_products !== undefined) {
+              state.products = normalizeFirebaseList(cloudData.rb_boutique_products);
+              try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
+            }
+            if (cloudData.rb_boutique_sales !== undefined) {
+              state.salesHistory = normalizeFirebaseList(cloudData.rb_boutique_sales);
+              try { window.localStorage.setItem('rb_boutique_sales', JSON.stringify(state.salesHistory)); } catch (e) {}
+            }
             
             if (cloudData.rb_boutique_vip_clients !== undefined) {
               state.vipClients = normalizeFirebaseList(cloudData.rb_boutique_vip_clients);
@@ -1307,28 +1313,51 @@
     };
 
     window.uploadProductImage = function(event) {
-      const file = event.target.files[0];
+      const file = event.target.files && event.target.files[0];
       if (!file) return;
-      if (!window.storage) { showToast('Sistema de archivos no conectado', 'error'); return; }
 
       const uploadText = document.getElementById('upload-text-btn');
-      if (uploadText) uploadText.innerHTML = '⏳ Subiendo foto...';
+      if (uploadText) uploadText.innerHTML = '⏳ Ajustando foto...';
 
-      const ref = window.storage.ref('productos/' + Date.now() + '_' + file.name);
-      ref.put(file).then(snapshot => {
-        snapshot.ref.getDownloadURL().then(url => {
-          state.newProd.image = url; // Guarda el nuevo enlace seguro en la prenda
-          showToast('📸 Foto subida y ajustada con éxito');
-          renderApp(); // Recarga la vista para mostrar la previsualización
-        });
-      }).catch(err => {
-        showToast('Error al subir la foto', 'error');
-        if (uploadText) uploadText.innerHTML = 'Intentar de nuevo';
-      });
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const maxDim = 800;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height && width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else if (height >= width && height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          state.newProd.image = canvas.toDataURL('image/jpeg', 0.82);
+          showToast('📸 Foto cargada y ajustada al instante');
+          renderApp();
+        };
+        img.onerror = function() {
+          showToast('Formato de imagen no válido', 'error');
+          if (uploadText) uploadText.innerHTML = 'Subir desde Galería / Archivos';
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
     };
 
     window.submitNewProduct = function (e) {
-      e.preventDefault(); const np = state.newProd; const priceNum = Number(np.price) || 0;
+      e.preventDefault();
+      const np = state.newProd;
+      const priceNum = Number(np.price) || 0;
       let finalSizes = {};
       if (np.department === 'Accesorios') finalSizes = { UNITALLA: Number(np.unitallaStock) || 0 };
       else if (np.department === 'Tenis') finalSizes = { ...np.shoeSizes };
@@ -1338,13 +1367,42 @@
       const availSubcats = getCategorySubcategories(np.category);
       const finalSubcategory = availSubcats.length > 0 ? (np.subcategory || availSubcats[0]) : (np.subcategory || '');
 
-      const obj = { id: state.isEditingProduct ? np.id : `prod-${Date.now()}`, sku: np.sku, name: np.name, category: np.category, subcategory: finalSubcategory, department: np.department, originalPrice: Number(np.originalPrice) || 0, price: priceNum, cost: Number(np.cost) || 0, isTrending: true, isNew: !state.isEditingProduct, rating: 5.0, reviews: 1, image: np.image || 'https://placehold.co/600x800', colors: [{ name: np.colorName, hex: np.colorHex }], sizes: finalSizes, description: np.description };
-      
-      if (state.isEditingProduct) { state.products = state.products.map(p => p.id === obj.id ? obj : p); showToast('✅ Prenda actualizada correctamente'); } 
-      else { state.products = [obj, ...state.products]; showToast('✨ Nueva prenda publicada en catálogo'); }
-      saveStored('rb_boutique_products', state.products); state.showNewProductModal = false; renderApp();
-    };
+      const obj = {
+        id: state.isEditingProduct ? np.id : `prod-${Date.now()}`,
+        sku: np.sku || ('BTQ-' + Math.floor(100 + Math.random() * 900)),
+        name: (np.name || '').trim(),
+        category: np.category || 'Vestidos',
+        subcategory: finalSubcategory,
+        department: np.department || 'Mujer',
+        originalPrice: Number(np.originalPrice) || 0,
+        price: priceNum,
+        cost: Number(np.cost) || 0,
+        isTrending: true,
+        isNew: !state.isEditingProduct,
+        rating: 5.0,
+        reviews: 1,
+        image: np.image || 'https://placehold.co/600x800',
+        colors: [{ name: np.colorName || 'Negro', hex: np.colorHex || '#18181b' }],
+        sizes: finalSizes,
+        description: np.description || ''
+      };
 
+      if (state.isEditingProduct) {
+        state.products = state.products.map(p => p.id === obj.id ? obj : p);
+        showToast('✅ Prenda actualizada correctamente');
+      } else {
+        state.products = [obj, ...state.products];
+        showToast('✨ Nueva prenda publicada en catálogo');
+      }
+
+      state.selectedCategory = 'Todo';
+      state.selectedSubcategory = 'Todo';
+      state.inventorySectionFilter = 'Todo';
+      state.inventorySubcategoryFilter = 'Todo';
+      saveStored('rb_boutique_products', state.products);
+      state.showNewProductModal = false;
+      renderApp();
+    };
     window.addToCustomerBag = function () {
       if (!state.currentUser && state.authStatus === 'guest') { state.showAuthRegisterModal = true; renderApp(); return; }
       const p = state.selectedProductModal; if (!p) return;
@@ -2691,7 +2749,7 @@
 
       if (state.showNewProductModal) {
         const np = state.newProd; const availableSubcategories = getCategorySubcategories(np.category);
-        html += `<div class="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print"><form onsubmit="submitNewProduct(event)" class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-lg w-full p-7 space-y-5 text-white my-8 shadow-2xl animate-fade"><div class="flex items-center justify-between border-b border-zinc-800 pb-3"><div><h3 class="font-black text-base">${state.isEditingProduct ? '✏️ Modificar Prenda' : '+ Publicar Nueva Prenda'}</h3></div><button type="button" onclick="state.showNewProductModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400">✕</button></div><div class="space-y-4 text-xs max-h-[70vh] overflow-y-auto pr-2"><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">1. Clasificación</p><div class="grid grid-cols-2 gap-3"><div><label class="block mb-1.5 text-zinc-400 font-bold">Departamento (Tallas)</label><select onchange="state.newProd.department=this.value; state.newProd.sku=this.value.slice(0,3).toUpperCase()+'-'+Math.floor(200+Math.random()*700); renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${['Mujer', 'Hombres', 'Niñas', 'Niños', 'Tenis', 'Accesorios'].map(d => `<option value="${d}" ${np.department === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div><div><label class="block mb-1.5 text-zinc-400 font-bold">Categoría</label><select onchange="state.newProd.category=this.value; const subs=getCategorySubcategories(this.value); state.newProd.subcategory=subs[0]||''; if(this.value.toLowerCase()==='paca'){ state.newProd.sku='PAC-'+Math.floor(200+Math.random()*700); } renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${[...new Set(['Vestidos', 'Conjuntos', 'Denim', 'Bolsos', 'Paca', ...state.visualCategories.map(c=>c.id)])].filter(c=>c!=='Todo').map(c => `<option value="${c}" ${np.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>${availableSubcategories.length > 0 ? `<div class="pt-2 border-t border-zinc-800/80 animate-fade"><label class="block mb-1.5 text-pink-400 font-black">↳ Subcategoría</label><select onchange="state.newProd.subcategory=this.value; if(this.value.includes('Niños')){state.newProd.department='Niños';} else if(this.value.includes('Niñas')){state.newProd.department='Niñas';} else if(this.value.includes('Hombre')){state.newProd.department='Hombres';} else if(this.value.includes('Mujer')){state.newProd.department='Mujer';} renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-pink-500/50 text-white font-black">${availableSubcategories.map(sub => `<option value="${sub}" ${(np.subcategory || availableSubcategories[0]) === sub ? 'selected' : ''}>${sub}</option>`).join('')}</select></div>` : ''}</div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">2. Precios</p><div class="grid grid-cols-3 gap-3"><div class="col-span-2"><label class="block mb-1.5 text-zinc-400 font-bold">Nombre</label><input type="text" required value="${np.name}" oninput="state.newProd.name=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div><div><label class="block mb-1.5 text-zinc-400 font-bold">SKU</label><input type="text" value="${np.sku}" oninput="state.newProd.sku=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div></div><div class="grid grid-cols-3 gap-3"><div><label class="block mb-1.5 text-zinc-400 font-bold">P. Normal</label><input type="number" value="${np.originalPrice}" oninput="state.newProd.originalPrice=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div><div><label class="block mb-1.5 text-emerald-400 font-bold">P. Oferta</label><input type="number" required value="${np.price}" oninput="state.newProd.price=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border-2 border-emerald-500/50 text-emerald-400 font-black" /></div><div><label class="block mb-1.5 text-zinc-400 font-bold">Tu Costo</label><input type="number" value="${np.cost}" oninput="state.newProd.cost=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-400" /></div></div></div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase mb-2">3. Subir Fotografía</p> <div class="flex items-center gap-4 bg-zinc-900 p-3 rounded-xl border border-zinc-700">   <div class="w-16 h-20 rounded-lg bg-black border border-zinc-600 overflow-hidden shrink-0 flex items-center justify-center">     ${np.image ? `<img src="${np.image}" class="w-full h-full object-cover" />` : '<span class="text-2xl">📷</span>'}   </div>   <div class="flex-1">     <p class="text-[10px] text-zinc-400 mb-2 leading-tight">La foto se ajustará automáticamente sin deformarse gracias al auto-recorte inteligente.</p>     <label class="flex items-center justify-center w-full px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-white cursor-pointer transition shadow-md">       <span id="upload-text-btn" class="text-xs font-black">Subir desde Galería / Archivos</span>       <input type="file" accept="image/*" class="hidden" onchange="uploadProductImage(event)" />     </label>   </div> </div></div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">4. Inventario Físico</p>${np.department === 'Accesorios' ? `<div><label class="block mb-1.5 text-zinc-400 font-bold">UNITALLA</label><input type="number" value="${np.unitallaStock}" oninput="state.newProd.unitallaStock=Number(this.value);" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black" /></div>` : `<div class="grid grid-cols-5 gap-2">${['XS','S','M','L','XL'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">${sz}</label><input type="number" value="${np.adultSizes[sz]}" oninput="state.newProd.adultSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>`}</div></div><button type="submit" class="w-full py-4 rounded-xl bg-pink-600 text-white font-black text-sm shadow-lg">${state.isEditingProduct ? 'Guardar Cambios' : 'Publicar en Catálogo'}</button></form></div>`;
+        html += `<div class="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print"><form onsubmit="submitNewProduct(event)" class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-lg w-full p-7 space-y-5 text-white my-8 shadow-2xl animate-fade"><div class="flex items-center justify-between border-b border-zinc-800 pb-3"><div><h3 class="font-black text-base">${state.isEditingProduct ? '✏️ Modificar Prenda' : '+ Publicar Nueva Prenda'}</h3></div><button type="button" onclick="state.showNewProductModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400">✕</button></div><div class="space-y-4 text-xs max-h-[70vh] overflow-y-auto pr-2"><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">1. Clasificación</p><div class="grid grid-cols-2 gap-3"><div><label class="block mb-1.5 text-zinc-400 font-bold">Departamento (Tallas)</label><select onchange="state.newProd.department=this.value; state.newProd.sku=this.value.slice(0,3).toUpperCase()+'-'+Math.floor(200+Math.random()*700); renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${['Mujer', 'Hombres', 'Niñas', 'Niños', 'Tenis', 'Accesorios'].map(d => `<option value="${d}" ${np.department === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div><div><label class="block mb-1.5 text-zinc-400 font-bold">Categoría</label><select onchange="state.newProd.category=this.value; const subs=getCategorySubcategories(this.value); state.newProd.subcategory=subs[0]||''; if(this.value.toLowerCase()==='paca'){ state.newProd.sku='PAC-'+Math.floor(200+Math.random()*700); } renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${[...new Set(['Vestidos', 'Conjuntos', 'Denim', 'Bolsos', 'Paca', ...state.visualCategories.map(c=>c.id)])].filter(c=>c!=='Todo').map(c => `<option value="${c}" ${np.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>${availableSubcategories.length > 0 ? `<div class="pt-2 border-t border-zinc-800/80 animate-fade"><label class="block mb-1.5 text-pink-400 font-black">↳ Subcategoría</label><select onchange="state.newProd.subcategory=this.value; if(this.value.includes('Niños')){state.newProd.department='Niños';} else if(this.value.includes('Niñas')){state.newProd.department='Niñas';} else if(this.value.includes('Hombre')){state.newProd.department='Hombres';} else if(this.value.includes('Mujer')){state.newProd.department='Mujer';} renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-pink-500/50 text-white font-black">${availableSubcategories.map(sub => `<option value="${sub}" ${(np.subcategory || availableSubcategories[0]) === sub ? 'selected' : ''}>${sub}</option>`).join('')}</select></div>` : ''}</div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">2. Precios</p><div class="grid grid-cols-3 gap-3"><div class="col-span-2"><label class="block mb-1.5 text-zinc-400 font-bold">Nombre</label><input type="text" required value="${np.name}" oninput="state.newProd.name=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div><div><label class="block mb-1.5 text-zinc-400 font-bold">SKU</label><input type="text" value="${np.sku}" oninput="state.newProd.sku=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div></div><div class="grid grid-cols-3 gap-3"><div><label class="block mb-1.5 text-zinc-400 font-bold">P. Normal</label><input type="number" value="${np.originalPrice}" oninput="state.newProd.originalPrice=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div><div><label class="block mb-1.5 text-emerald-400 font-bold">P. Oferta</label><input type="number" required value="${np.price}" oninput="state.newProd.price=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border-2 border-emerald-500/50 text-emerald-400 font-black" /></div><div><label class="block mb-1.5 text-zinc-400 font-bold">Tu Costo</label><input type="number" value="${np.cost}" oninput="state.newProd.cost=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-400" /></div></div></div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase mb-2">3. Subir Fotografía</p> <div class="flex items-center gap-4 bg-zinc-900 p-3 rounded-xl border border-zinc-700">   <div class="w-16 h-20 rounded-lg bg-black border border-zinc-600 overflow-hidden shrink-0 flex items-center justify-center">     ${np.image ? `<img src="${np.image}" class="w-full h-full object-cover" />` : '<span class="text-2xl">📷</span>'}   </div>   <div class="flex-1">     <p class="text-[10px] text-zinc-400 mb-2 leading-tight">La foto se ajustará automáticamente sin deformarse gracias al auto-recorte inteligente.</p>     <label class="flex items-center justify-center w-full px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-white cursor-pointer transition shadow-md">       <span id="upload-text-btn" class="text-xs font-black">Subir desde Galería / Archivos</span>       <input type="file" accept="image/*" class="hidden" onchange="uploadProductImage(event)" />     </label>   </div> </div></div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">4. Inventario Físico</p>${np.department === 'Accesorios' ? `<div><label class="block mb-1.5 text-zinc-400 font-bold">UNITALLA</label><input type="number" value="${np.unitallaStock}" oninput="state.newProd.unitallaStock=Number(this.value);" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black" /></div>` : np.department === 'Tenis' ? `<div class="grid grid-cols-4 sm:grid-cols-7 gap-2">${['22','23','24','25','26','27','28'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">${sz}</label><input type="number" value="${np.shoeSizes[sz]}" oninput="state.newProd.shoeSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>` : (np.department === 'Niñas' || np.department === 'Niños') ? `<div class="grid grid-cols-5 gap-2">${['4','6','8','10','12'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">T-${sz}</label><input type="number" value="${np.kidsSizes[sz]}" oninput="state.newProd.kidsSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>` : `<div class="grid grid-cols-5 gap-2">${['XS','S','M','L','XL'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">${sz}</label><input type="number" value="${np.adultSizes[sz]}" oninput="state.newProd.adultSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>`}</div></div><button type="submit" class="w-full py-4 rounded-xl bg-pink-600 text-white font-black text-sm shadow-lg">${state.isEditingProduct ? 'Guardar Cambios' : 'Publicar en Catálogo'}</button></form></div>`;
       }
 
       if (state.showPwaInstallModal) {
