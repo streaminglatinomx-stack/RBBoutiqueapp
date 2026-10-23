@@ -232,14 +232,11 @@
             const hadBubbleBefore = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
 
             if (cloudData.rb_boutique_products !== undefined) {
-              const cloudProds = normalizeFirebaseList(cloudData.rb_boutique_products);
-              // REGLA LOCAL ESTRICTA: La memoria HTML manda. Firebase YA NO puede borrar ni sobrescribir tus prendas.
-              // Solo tomará datos de la nube si tu memoria local está completamente vacía (por ejemplo, al cambiar de computadora).
-              if (cloudProds.length > 0) {
-                state.products = cloudProds;
-                try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
-              }
+              state.products = normalizeFirebaseList(cloudData.rb_boutique_products);
+            } else {
+              state.products = [];
             }
+            try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
             if (cloudData.rb_boutique_sales !== undefined) {
               state.salesHistory = normalizeFirebaseList(cloudData.rb_boutique_sales);
               try { window.localStorage.setItem('rb_boutique_sales', JSON.stringify(state.salesHistory)); } catch (e) {}
