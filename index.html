@@ -1337,7 +1337,9 @@
         const img = new Image();
         img.onload = function() {
           const canvas = document.createElement('canvas');
-          const maxDim = 800;
+          
+          // Compresión extrema para asegurar guardado en memoria HTML
+          const maxDim = 400; 
           let width = img.width;
           let height = img.height;
 
@@ -1354,8 +1356,9 @@
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          state.newProd.image = canvas.toDataURL('image/jpeg', 0.82);
-          showToast('📸 Foto cargada y ajustada al instante');
+          // Calidad ajustada al 50% (Súper ligero, 0 bloqueos)
+          state.newProd.image = canvas.toDataURL('image/jpeg', 0.5);
+          showToast('📸 Foto ajustada y optimizada al instante');
           renderApp();
         };
         img.onerror = function() {
