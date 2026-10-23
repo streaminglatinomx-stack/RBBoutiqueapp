@@ -212,7 +212,7 @@
       if (!firebase.apps.length) {
         firebase.initializeApp(firebaseConfig);
         window.dbRef = firebase.database().ref('rb_boutique_data');
-        window.storage = firebase.storage();
+        window.auth = firebase.auth();
 
         window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
