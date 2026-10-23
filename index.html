@@ -232,12 +232,11 @@
 
             if (cloudData.rb_boutique_products !== undefined) {
               const cloudProds = normalizeFirebaseList(cloudData.rb_boutique_products);
-              // Protegemos el inventario: Si estás en el Panel Administrativo, la nube no sobrescribirá tus prendas locales
-              if (state.appMode !== 'backoffice' || cloudProds.length > state.products.length) {
+              // REGLA LOCAL ESTRICTA: La memoria HTML manda. Firebase YA NO puede borrar ni sobrescribir tus prendas.
+              // Solo tomará datos de la nube si tu memoria local está completamente vacía (por ejemplo, al cambiar de computadora).
+              if (state.products.length === 0 && cloudProds.length > 0) {
                 state.products = cloudProds;
                 try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
-              } else if (state.appMode === 'backoffice' && state.products.length > cloudProds.length) {
-                saveStored('rb_boutique_products', state.products); // Fuerza la resincronización hacia Firebase
               }
             }
             if (cloudData.rb_boutique_sales !== undefined) {
