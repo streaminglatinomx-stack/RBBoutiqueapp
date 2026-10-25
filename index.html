@@ -2599,6 +2599,18 @@
                     [...listA, ...listB].forEach(o => { if (o && o.id) mapOrders.set(o.id, o); });
                     const allPendingOrders = Array.from(mapOrders.values());
 
+                    window.confirmarPagoPedidoWeb = function (saleId) {
+                      state.pendingWebOrders = normalizeFirebaseList(state.pendingWebOrders).map(s => {
+                        if (s && s.id === saleId) {
+                          return { ...s, trackingStep: 2, bankStatus: 'Pago Verificado ✅', status: 'Surtiendo Pedido 📦' };
+                        }
+                        return s;
+                      });
+                      saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+                      showToast('📦 Pago confirmado. El cliente ahora ve: "Tu pedido se está surtiendo"');
+                      renderApp();
+                    };
+
                     window.enlazarPedidoWebACaja = function (saleId) {
                       const order = allPendingOrders.find(s => s && s.id === saleId);
                       if (!order) return;
@@ -2624,7 +2636,7 @@
                       state.posDeliveryMapUrl = order.deliveryMapUrl || '';
                       const nextCalc = getPosCalculations();
                       state.cashReceived = String(nextCalc.finalChargeToday);
-                      showToast('✅ Pedido ' + order.id + ' enlazado al Ticket de Cobro en Caja');
+                      showToast('🔗 Pedido ' + order.id + ' cargado en Ticket de Cobro. Presiona Cobrar para pasar a Listo para Entrega.');
                       renderApp();
                     };
 
@@ -2649,37 +2661,48 @@
                             <span class="w-9 h-9 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-base font-black">🌐</span>
                             <div>
                               <h3 class="font-black text-white text-sm uppercase tracking-wider">Ventana de Pedidos Web en Línea</h3>
-                              <p class="text-[10px] text-zinc-400">Enlaza el pedido del cliente directamente a tu Ticket de Cobro en Caja</p>
+                              <p class="text-[10px] text-zinc-400">1° Confirma el pago (Surtiendo) → 2° Enlaza a Caja y Cobra (Listo para Entrega)</p>
                             </div>
                           </div>
-                          <span class="px-3 py-1 rounded-full text-xs font-black ${allPendingOrders.length > 0 ? 'bg-pink-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-400'}">${allPendingOrders.length} pendiente(s)</span>
+                          <span class="px-3 py-1 rounded-full text-xs font-black ${allPendingOrders.length > 0 ? 'bg-pink-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-400'}">${allPendingOrders.length} en proceso</span>
                         </div>
 
                         ${allPendingOrders.length === 0 ? `
                           <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800/80 text-center text-xs text-zinc-500 font-bold">
-                            No hay pedidos web pendientes en este momento. Cuando un cliente confirme su carrito, aparecerá aquí.
+                            No hay pedidos web en espera. Cuando un cliente realice un pedido, aparecerá aquí.
                           </div>
                         ` : `
-                          <div class="space-y-2.5 max-h-60 overflow-y-auto pr-1">
-                            ${allPendingOrders.map(ord => `
-                              <div class="p-3.5 rounded-2xl bg-zinc-950 border ${state.activeWebOrderId === ord.id ? 'border-emerald-500 ring-1 ring-emerald-500/40' : 'border-pink-500/40'} flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                                <div class="space-y-1">
-                                  <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="font-mono font-black text-pink-400 bg-pink-500/10 px-2 py-0.5 rounded border border-pink-500/20">${ord.id}</span>
-                                    <span class="font-black text-white text-sm">${ord.customer}</span>
-                                    <span class="text-[10px] text-zinc-400">${ord.time || ''}</span>
+                          <div class="space-y-3 max-h-72 overflow-y-auto pr-1">
+                            ${allPendingOrders.map(ord => {
+                              const isSurtiendo = Number(ord.trackingStep) === 2;
+                              return `
+                              <div class="p-4 rounded-2xl bg-zinc-950 border ${state.activeWebOrderId === ord.id ? 'border-emerald-500 ring-1 ring-emerald-500/40' : isSurtiendo ? 'border-amber-500/60' : 'border-pink-500/40'} flex flex-col gap-3 text-xs">
+                                <div class="flex flex-wrap items-start justify-between gap-2">
+                                  <div class="space-y-1">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                      <span class="font-mono font-black text-pink-400 bg-pink-500/10 px-2 py-0.5 rounded border border-pink-500/20">${ord.id}</span>
+                                      <span class="font-black text-white text-sm">${ord.customer}</span>
+                                      <span class="text-[10px] text-zinc-400">${ord.time || ''}</span>
+                                    </div>
+                                    <p class="text-[11px] text-zinc-300 font-bold">${(ord.itemsList || []).map(it => it.qty + 'x ' + it.name + ' (' + it.size + ')').join(', ')}</p>
+                                    <p class="text-[10px] text-zinc-400">${ord.type} • Total: <strong class="text-emerald-400 text-xs">$${ord.total} MXN</strong></p>
                                   </div>
-                                  <p class="text-[11px] text-zinc-300">${(ord.itemsList || []).map(it => it.qty + 'x ' + it.name + ' (' + it.size + ')').join(', ')}</p>
-                                  <p class="text-[10px] text-zinc-400">${ord.type} • Total a cobrar: <strong class="text-emerald-400 text-xs">$${ord.total} MXN</strong></p>
+                                  <span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${isSurtiendo ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-sky-500/20 text-sky-300 border border-sky-500/40 animate-pulse'}">
+                                    ${isSurtiendo ? '📦 Paso 2: Surtiendo Pedido' : '⏳ Paso 1: Confirmando Pago'}
+                                  </span>
                                 </div>
-                                <div class="flex items-center gap-2 shrink-0">
-                                  <button type="button" onclick="enlazarPedidoWebACaja('${ord.id}')" class="px-4 py-2.5 rounded-xl ${state.activeWebOrderId === ord.id ? 'bg-emerald-600 text-white' : 'bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white'} font-black text-xs shadow-lg transition">
-                                    ${state.activeWebOrderId === ord.id ? '✓ Enlazado en Caja' : '🔗 Enlazar a Ticket de Cobro'}
+
+                                <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800/80">
+                                  <button type="button" onclick="confirmarPagoPedidoWeb('${ord.id}')" class="flex-1 min-w-[160px] px-3 py-2.5 rounded-xl font-black text-[11px] transition ${isSurtiendo ? 'bg-zinc-800 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg'}">
+                                    ${isSurtiendo ? '✓ 1. Pago Confirmado (Surtiendo)' : '✅ 1. Confirmar Pago (Surtiendo)'}
+                                  </button>
+                                  <button type="button" onclick="enlazarPedidoWebACaja('${ord.id}')" class="flex-1 min-w-[170px] px-3 py-2.5 rounded-xl font-black text-[11px] transition ${state.activeWebOrderId === ord.id ? 'bg-emerald-600 text-white' : 'bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white shadow-lg'}">
+                                    ${state.activeWebOrderId === ord.id ? '✓ Enlazado en Ticket de Cobro' : '🔗 2. Enlazar a Ticket de Cobro'}
                                   </button>
                                   <button type="button" onclick="descartarPedidoWeb('${ord.id}')" class="px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-rose-600 text-zinc-400 hover:text-white font-bold text-xs transition" title="Descartar pedido">🗑️</button>
                                 </div>
                               </div>
-                            `).join('')}
+                            `}).join('')}
                           </div>
                         `}
                       </div>
@@ -3064,8 +3087,40 @@
         html += `<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print"><div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade"><div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><h3 class="font-black text-lg">Mi Carrito RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200">✕</button></div><div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">${activeUserGift ? `<div class="p-3.5 rounded-2xl bg-zinc-900 text-white border border-pink-500 flex items-center justify-between gap-2 text-xs"><div><span class="font-black text-pink-400 block">🎟️ Cupón VIP: ${activeUserGift.type==='percent'?activeUserGift.value+'% OFF':'$'+activeUserGift.value+' MXN'}</span><span class="text-[10px] text-rose-300 font-mono">⏳ Vence en: <strong class="vip-countdown-timer">${formatRemainingTime(activeUserGift.expiresAt)}</strong></span></div>${activeUserGift.savedForLater ? `<button onclick="applyVipCouponNow()" class="px-3 py-1.5 rounded-xl bg-pink-600 text-white font-black text-[10px] shrink-0">Aplicar Ahora</button>` : `<button onclick="saveVipCouponForLater()" class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-[10px] shrink-0">Guardar para después</button>`}</div>` : ''}${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu carrito está vacío.</p></div>` : `<div class="space-y-3">${state.customerCart.map(item => `<div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>`).join('')}</div><div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3"><label class="block font-black text-sm text-zinc-900">Método de Entrega</label><select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Calle, número, colonia..." value="${state.customerDeliveryAddress || (state.currentUser?state.currentUser.address:'')}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm" /><input type="url" placeholder="Link Google Maps (Opcional)" value="${state.customerDeliveryMapUrl || (state.currentUser?state.currentUser.mapsUrl:'')}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm text-sky-600" /></div>` : ''}</div>`}</div>${state.customerCart.length > 0 ? `<div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0"><div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold"><span>10% OFF VIP:</span><span>-$${calc.vipDiscount}</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount}</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío:</span><span>+$${calc.shippingFee}</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div><button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black text-white font-black text-sm shadow-xl">${calc.isHomeDelivery ? `Apartar y Enviar ($${calc.requiredAdvance50} Anticipo)` : 'Confirmar Pedido'}</button></div>` : ''}</div></div>`;
       }
 
+      // CAMBIAR TEXTO DEL BOTÓN DEL CARRITO A "REALIZAR PEDIDO" Y GUARDAR FOLIO ACTIVO
+      html = html.replace(/(onclick="handleCustomerCheckout\(\)"[^>]*>)([\s\S]*?)(<\/button>)/, '$1🛍️ Realizar Pedido$3');
+
+      if (!window.mpTrackerInitialized) {
+        window.mpTrackerInitialized = true;
+        const origCheckout = window.handleCustomerCheckout;
+        window.handleCustomerCheckout = function () {
+          origCheckout();
+          if (state.whatsappCheckoutModal && state.whatsappCheckoutModal.folio) {
+            state.activeTrackingFolio = state.whatsappCheckoutModal.folio;
+            state.lastPaymentBackup = state.whatsappCheckoutModal;
+            try { window.localStorage.setItem('rb_boutique_active_folio', state.whatsappCheckoutModal.folio); } catch (e) {}
+          }
+        };
+      }
+
+      window.copiarYMinimizarPago = function (texto, msg) {
+        copyTextSafe(texto, msg);
+        if (state.whatsappCheckoutModal) {
+          state.lastPaymentBackup = state.whatsappCheckoutModal;
+          state.activeTrackingFolio = state.whatsappCheckoutModal.folio;
+          try { window.localStorage.setItem('rb_boutique_active_folio', state.whatsappCheckoutModal.folio); } catch (e) {}
+        }
+        setTimeout(() => {
+          state.whatsappCheckoutModal = null;
+          state.isBagOpen = true;
+          showToast('⏳ Monitoreando el estado de tu pedido en tiempo real...');
+          renderApp();
+        }, 450);
+      };
+
       if (state.whatsappCheckoutModal) {
         const w = state.whatsappCheckoutModal;
+        state.lastPaymentBackup = w;
         const payTab = w.payTab || 'transfer';
         const oxxoBank = state.storeConfig.oxxoBankName || state.storeConfig.bankName || 'Depósito en Efectivo';
         const oxxoHolder = state.storeConfig.oxxoAccountHolder || state.storeConfig.accountHolder || 'RB Boutique';
@@ -3074,17 +3129,19 @@
         const metodoTextoWA = payTab === 'oxxo' ? 'Depósito en OXXO / 7-Eleven' : 'Transferencia Bancaria';
 
         html += `
-          <div class="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 no-print">
+          <div class="fixed inset-0 z-[70] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 no-print">
             <div class="bg-zinc-900 border border-emerald-500/40 rounded-3xl max-w-md w-full p-6 space-y-4 text-white animate-fade shadow-2xl relative">
-              <div class="flex items-center gap-3">
-                <div class="w-11 h-11 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 font-black">✓</div>
-                <div>
-                  <span class="text-[10px] font-black text-emerald-400 uppercase">Pedido Confirmado • Elige cómo pagar</span>
-                  <h4 class="font-black text-lg leading-tight">Folio: ${w.folio}</h4>
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-11 h-11 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 font-black">✓</div>
+                  <div>
+                    <span class="text-[10px] font-black text-emerald-400 uppercase">Paso 1 • Datos de Pago</span>
+                    <h4 class="font-black text-lg leading-tight">Folio: ${w.folio}</h4>
+                  </div>
                 </div>
+                <button type="button" onclick="state.whatsappCheckoutModal=null; state.isBagOpen=true; renderApp();" class="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-300">Minimizar ▾</button>
               </div>
 
-              <!-- PESTAÑAS PARA ELEGIR TRANSFERENCIA U OXXO / 7-ELEVEN -->
               <div class="grid grid-cols-2 gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 text-xs">
                 <button type="button" onclick="state.whatsappCheckoutModal.payTab='transfer'; renderApp();" class="py-2.5 px-2 rounded-xl font-black transition flex items-center justify-center gap-1.5 ${payTab === 'transfer' ? 'bg-pink-600 text-white shadow-md' : 'text-zinc-400 hover:text-white'}">
                   <span>🏦</span><span>Transferencia</span>
@@ -3096,16 +3153,16 @@
 
               <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-3">
                 ${payTab === 'transfer' ? `
-                  <p class="font-sans text-zinc-300 font-bold">1. Realiza tu transferencia SPEI desde tu banca móvil:</p>
+                  <p class="font-sans text-zinc-300 font-bold">Copia la CLABE para realizar tu transferencia (la ventana se minimizará a tu Carrito):</p>
                   <div class="bg-zinc-900 p-3.5 rounded-xl border border-pink-500/30 space-y-1.5">
                     <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Banco:</span><span class="font-black text-white text-sm">${state.storeConfig.bankName}</span></div>
                     <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Titular:</span><span class="text-white font-sans font-bold">${state.storeConfig.accountHolder}</span></div>
                     <div class="flex justify-between items-center pt-1 border-t border-zinc-800"><span class="text-zinc-400">CLABE:</span><span class="font-black text-pink-400 text-sm">${state.storeConfig.clabe}</span></div>
                     ${state.storeConfig.cardNumber ? `<div class="flex justify-between items-center"><span class="text-zinc-400">Tarjeta:</span><span class="font-bold text-zinc-200">${state.storeConfig.cardNumber}</span></div>` : ''}
-                    <button type="button" onclick="copyTextSafe('${state.storeConfig.clabe}', '📋 CLABE copiada al portapapeles')" class="mt-2 w-full py-2 bg-pink-600/20 border border-pink-500/40 rounded-xl font-sans font-black hover:bg-pink-600 text-pink-300 hover:text-white transition">📋 Copiar CLABE Interbancaria</button>
+                    <button type="button" onclick="copiarYMinimizarPago('${state.storeConfig.clabe}', '📋 CLABE copiada • Seguimiento activado')" class="mt-2 w-full py-2.5 bg-pink-600 hover:bg-pink-500 rounded-xl font-sans font-black text-white shadow-lg transition">📋 Copiar CLABE y Ver Estado del Pedido</button>
                   </div>
                 ` : `
-                  <p class="font-sans text-amber-300 font-bold">1. Acude a cualquier OXXO o 7-Eleven y deposita a esta tarjeta:</p>
+                  <p class="font-sans text-amber-300 font-bold">Copia los 16 dígitos para depositar en OXXO o 7-Eleven (se minimizará a tu Carrito):</p>
                   <div class="bg-zinc-900 p-3.5 rounded-xl border border-amber-500/40 space-y-2">
                     <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Banco Receptor:</span><span class="font-black text-white text-sm">${oxxoBank}</span></div>
                     <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Beneficiario:</span><span class="text-white font-sans font-bold">${oxxoHolder}</span></div>
@@ -3114,7 +3171,7 @@
                       <span class="font-black text-amber-400 text-base tracking-wider block">${oxxoCard}</span>
                     </div>
                     <p class="font-sans text-[11px] text-zinc-400 leading-snug">💡 ${oxxoNote}</p>
-                    <button type="button" onclick="copyTextSafe('${oxxoCard}', '📋 Número de tarjeta OXXO copiado')" class="w-full py-2 bg-amber-500/20 border border-amber-500/40 rounded-xl font-sans font-black hover:bg-amber-500 text-amber-300 hover:text-black transition">📋 Copiar 16 Dígitos de Tarjeta</button>
+                    <button type="button" onclick="copiarYMinimizarPago('${oxxoCard}', '📋 Tarjeta OXXO copiada • Seguimiento activado')" class="w-full py-2.5 bg-amber-500 hover:bg-amber-400 rounded-xl font-sans font-black text-black shadow-lg transition">📋 Copiar 16 Dígitos y Ver Estado del Pedido</button>
                   </div>
                 `}
 
@@ -3125,12 +3182,187 @@
               </div>
 
               <div class="flex gap-2 pt-1">
-                <button type="button" onclick="state.whatsappCheckoutModal=null; renderApp();" class="w-1/3 py-3.5 rounded-xl bg-zinc-800 text-white font-bold text-xs">Cerrar</button>
-                <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=${encodeURIComponent(`Hola RB Boutique! Acabo de confirmar mi pedido con Folio ${w.folio} por $${w.calc.requiredAdvance50} MXN mediante ${metodoTextoWA}. Envío foto de mi comprobante:`)}" target="_blank" class="w-2/3 py-3.5 rounded-xl bg-[#25D366] text-white font-black text-xs text-center flex items-center justify-center shadow-lg">📲 Enviar Comprobante</a>
+                <button type="button" onclick="state.whatsappCheckoutModal=null; state.isBagOpen=true; renderApp();" class="w-1/3 py-3.5 rounded-xl bg-zinc-800 text-white font-bold text-xs">Ver Mi Carrito</button>
+                <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=${encodeURIComponent(`Hola RB Boutique! Acabo de realizar mi pedido con Folio ${w.folio} por $${w.calc.requiredAdvance50} MXN mediante ${metodoTextoWA}. Envío mi comprobante:`)}" target="_blank" class="w-2/3 py-3.5 rounded-xl bg-[#25D366] text-white font-black text-xs text-center flex items-center justify-center shadow-lg">📲 Enviar Comprobante</a>
               </div>
             </div>
           </div>
         `;
+      }
+
+      // RASTREADOR EN TIEMPO REAL ESTILO MERCADO PAGO DENTRO DE MI CARRITO
+      if (state.role === 'client') {
+        const savedFolio = state.activeTrackingFolio || (() => { try { return window.localStorage.getItem('rb_boutique_active_folio'); } catch (e) { return null; } })();
+        const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+        const completedList = state.salesHistory || [];
+        const userName = state.currentUser && state.currentUser.name ? state.currentUser.name.trim() : '';
+
+        let trackedOrder = null;
+        let currentStep = 0;
+
+        if (savedFolio) {
+          const inPending = pendingList.find(o => o && o.id === savedFolio);
+          const inSales = completedList.find(o => o && o.id === savedFolio && !String(o.status).includes('Devuelto'));
+          if (inPending) {
+            trackedOrder = inPending;
+            currentStep = Number(inPending.trackingStep) === 2 ? 2 : 1;
+          } else if (inSales) {
+            trackedOrder = inSales;
+            currentStep = 3;
+          }
+        }
+
+        if (!trackedOrder && userName) {
+          const inPendingByUser = pendingList.find(o => o && String(o.customer || '').includes(userName));
+          if (inPendingByUser) {
+            trackedOrder = inPendingByUser;
+            currentStep = Number(inPendingByUser.trackingStep) === 2 ? 2 : 1;
+          }
+        }
+
+        if (trackedOrder && state.isBagOpen && state.customerCart.length === 0) {
+          const stepColor = currentStep === 3 ? '#10b981' : currentStep === 2 ? '#f59e0b' : '#009ee3';
+          const progressWidth = currentStep === 3 ? '100%' : currentStep === 2 ? '66%' : '34%';
+          const stepTitle = currentStep === 1
+            ? 'Confirmando tu pago...'
+            : currentStep === 2
+              ? '¡Tu pedido se está surtiendo!'
+              : '¡Tu pedido está listo para entrega!';
+          const stepSubtitle = currentStep === 1
+            ? 'Pronto te avisaremos sobre tu pedido en cuanto verifiquemos tu transferencia o depósito.'
+            : currentStep === 2
+              ? 'Pago confirmado. Estamos preparando y empaquetando tus prendas en boutique.'
+              : 'Próximo: Tu pedido ya fue surtido y confirmado en caja. ¡Listo para entregarse!';
+
+          html += `
+            <style>
+              @keyframes mpPulseRing {
+                0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(0, 158, 227, 0.7); }
+                70% { transform: scale(1); box-shadow: 0 0 0 16px rgba(0, 158, 227, 0); }
+                100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(0, 158, 227, 0); }
+              }
+              @keyframes mpBarFlow {
+                0% { background-position: 0% 50%; }
+                100% { background-position: 200% 50%; }
+              }
+              .mp-pulse { animation: mpPulseRing 2s infinite; }
+              .mp-bar-anim { background-size: 200% 100%; animation: mpBarFlow 2.2s linear infinite; }
+            </style>
+            <div class="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex justify-end no-print">
+              <div class="bg-zinc-950 border-l border-zinc-800 w-full max-w-md h-full flex flex-col justify-between text-white shadow-2xl animate-fade overflow-hidden">
+                <div class="p-5 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/90">
+                  <div class="flex items-center gap-2.5">
+                    <span class="text-xl">🛍️</span>
+                    <div>
+                      <h3 class="font-black text-base text-white leading-none">Mi Carrito • Seguimiento en Vivo</h3>
+                      <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1 mt-1">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Sincronizado en tiempo real
+                      </span>
+                    </div>
+                  </div>
+                  <button type="button" onclick="state.isBagOpen=false; renderApp();" class="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white flex items-center justify-center font-black">✕</button>
+                </div>
+
+                <div class="p-5 flex-1 overflow-y-auto space-y-5">
+                  <div class="p-5 rounded-3xl border border-white/10 shadow-xl space-y-4 relative overflow-hidden" style="background: linear-gradient(145deg, ${stepColor}28 0%, #09090b 85%); border-color: ${stepColor}66;">
+                    <div class="flex items-center gap-4">
+                      <div class="w-16 h-16 rounded-full flex items-center justify-center text-3xl shrink-0 mp-pulse border-2" style="background-color: ${stepColor}25; border-color: ${stepColor};">
+                        ${currentStep === 1 ? '⏳' : currentStep === 2 ? '📦' : '🎉'}
+                      </div>
+                      <div class="space-y-1">
+                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/10 text-white inline-block">
+                          Folio ${trackedOrder.id} • Paso ${currentStep} de 3
+                        </span>
+                        <h4 class="font-black text-lg text-white leading-snug">${stepTitle}</h4>
+                        <p class="text-xs text-zinc-300 leading-relaxed">${stepSubtitle}</p>
+                      </div>
+                    </div>
+
+                    <div class="space-y-1.5 pt-1">
+                      <div class="w-full h-3 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800 p-0.5">
+                        <div class="h-full rounded-full transition-all duration-700 mp-bar-anim" style="width: ${progressWidth}; background-image: linear-gradient(90deg, ${stepColor}, #ec4899, ${stepColor});"></div>
+                      </div>
+                      <div class="flex justify-between text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                        <span class="${currentStep >= 1 ? 'text-sky-400' : ''}">1. Pago</span>
+                        <span class="${currentStep >= 2 ? 'text-amber-400' : ''}">2. Surtiendo</span>
+                        <span class="${currentStep >= 3 ? 'text-emerald-400' : ''}">3. Listo</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="p-4 rounded-3xl bg-zinc-900 border border-zinc-800 space-y-4">
+                    <h5 class="text-[11px] font-black uppercase tracking-wider text-zinc-400">Progreso de tu Pedido en Tiempo Real</h5>
+
+                    <div class="flex items-start gap-3">
+                      <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${currentStep > 1 ? 'bg-emerald-500 text-black' : 'bg-sky-500 text-white animate-pulse'}">
+                        ${currentStep > 1 ? '✓' : '1'}
+                      </div>
+                      <div class="text-xs">
+                        <p class="font-black text-white">Confirmando tu pago</p>
+                        <p class="text-[11px] text-zinc-400">${currentStep === 1 ? 'En revisión • Pronto te avisaremos sobre tu pedido' : 'Pago verificado correctamente ✅'}</p>
+                      </div>
+                    </div>
+
+                    <div class="flex items-start gap-3">
+                      <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${currentStep > 2 ? 'bg-emerald-500 text-black' : currentStep === 2 ? 'bg-amber-500 text-black animate-bounce' : 'bg-zinc-800 text-zinc-500'}">
+                        ${currentStep > 2 ? '✓' : '2'}
+                      </div>
+                      <div class="text-xs">
+                        <p class="font-black ${currentStep >= 2 ? 'text-white' : 'text-zinc-500'}">Tu pedido se está surtiendo</p>
+                        <p class="text-[11px] text-zinc-400">${currentStep === 2 ? 'Apartando y empaquetando tus prendas en tienda 📦' : currentStep > 2 ? 'Prendas surtidas y verificadas ✅' : 'Iniciará al confirmar tu pago'}</p>
+                      </div>
+                    </div>
+
+                    <div class="flex items-start gap-3">
+                      <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${currentStep === 3 ? 'bg-emerald-500 text-black animate-pulse' : 'bg-zinc-800 text-zinc-500'}">
+                        ${currentStep === 3 ? '✓' : '3'}
+                      </div>
+                      <div class="text-xs">
+                        <p class="font-black ${currentStep === 3 ? 'text-emerald-400' : 'text-zinc-500'}">Próximo: Tu pedido está listo para entrega</p>
+                        <p class="text-[11px] text-zinc-400">${currentStep === 3 ? '¡Confirmado en caja! Tu pedido está listo para entregarse 🎉' : 'Se activará al finalizar el surtido en caja'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="p-4 rounded-3xl bg-zinc-900 border border-zinc-800 space-y-2.5 text-xs">
+                    <div class="flex justify-between items-center border-b border-zinc-800 pb-2">
+                      <span class="font-black text-zinc-300 uppercase text-[10px]">Resumen de tu Compra</span>
+                      <span class="font-black text-emerald-400 text-sm">$${trackedOrder.total} MXN</span>
+                    </div>
+                    <div class="space-y-1.5">
+                      ${(trackedOrder.itemsList || []).map(it => `
+                        <div class="flex justify-between text-zinc-300 text-[11px]">
+                          <span>${it.qty}x ${it.name} <strong class="text-pink-400">(${it.size})</strong></span>
+                          <span class="font-bold">$${Number(it.price) * Number(it.qty)}</span>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="p-4 border-t border-zinc-800 bg-zinc-900/95 space-y-2">
+                  <div class="grid grid-cols-2 gap-2">
+                    <button type="button" onclick="state.whatsappCheckoutModal = state.lastPaymentBackup || { folio: '${trackedOrder.id}', calc: { requiredAdvance50: '${trackedOrder.total}' }, items: [] }; renderApp();" class="py-3 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-[11px] flex items-center justify-center gap-1.5">
+                      🏦 Ver CLABE / Tarjeta
+                    </button>
+                    <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=${encodeURIComponent(`Hola RB Boutique! Envío el comprobante de mi pedido con Folio ${trackedOrder.id} por $${trackedOrder.total} MXN:`)}" target="_blank" class="py-3 px-3 rounded-xl bg-[#25D366] text-white font-black text-[11px] flex items-center justify-center gap-1.5 shadow-lg">
+                      📲 Enviar Comprobante
+                    </a>
+                  </div>
+                  ${currentStep === 3 ? `
+                    <button type="button" onclick="state.activeTrackingFolio=null; try{window.localStorage.removeItem('rb_boutique_active_folio');}catch(e){} state.isBagOpen=false; renderApp();" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs">
+                      ✓ Finalizar Seguimiento y Hacer Nuevo Pedido
+                    </button>
+                  ` : `
+                    <button type="button" onclick="state.isBagOpen=false; renderApp();" class="w-full py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white font-bold text-xs">
+                      Seguir viendo el catálogo (el rastreo continúa activo)
+                    </button>
+                  `}
+                </div>
+              </div>
+            </div>
+          `;
+        }
       }
 
       if (state.showNewProductModal) {
