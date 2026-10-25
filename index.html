@@ -1484,6 +1484,16 @@
       state.selectedProductModal = null; showToast(`🛍️ ¡Agregado a tu Carrito!`); renderApp();
     };
 
+    state.pendingWebOrders = loadStored('rb_boutique_pending_orders', []);
+    if (window.dbRef) {
+      window.dbRef.child('rb_boutique_pending_orders').on('value', (snap) => {
+        if (window.isSavingData) return;
+        state.pendingWebOrders = normalizeFirebaseList(snap.val());
+        try { window.localStorage.setItem('rb_boutique_pending_orders', JSON.stringify(state.pendingWebOrders)); } catch (e) {}
+        renderApp();
+      });
+    }
+
     window.handleCustomerCheckout = function () {
       if (state.customerCart.length === 0) return;
       const calc = getCustomerBagCalculations();
@@ -1522,7 +1532,6 @@
         method: 'TRANSFERENCIA',
         bankStatus: 'Pendiente Banco',
         status: calc.isHomeDelivery ? 'Esperando 50%' : 'Pendiente Entrega',
-        stockDeducted: false,
         subtotalBeforeFee: calc.requiredAdvance50,
         terminalFee: 0,
         total: calc.requiredAdvance50,
@@ -1532,8 +1541,10 @@
         itemsCount: state.customerCart.reduce((a, b) => a + b.qty, 0)
       };
 
-      state.salesHistory = [newRecord, ...state.salesHistory];
-      saveStored('rb_boutique_sales', state.salesHistory);
+      // SE GUARDA EXCLUSIVAMENTE EN PEDIDOS PENDIENTES (NO TOCA EL HISTORIAL NI EL STOCK)
+      state.pendingWebOrders = [newRecord, ...(state.pendingWebOrders || [])];
+      saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+
       state.whatsappCheckoutModal = { folio, calc, items: [...state.customerCart] };
       state.customerCart = [];
       state.isBagOpen = false;
@@ -1555,7 +1566,7 @@
     };
 
     window.loadWebOrderToPos = function (saleId) {
-      const order = state.salesHistory.find(s => s && s.id === saleId);
+      const order = (state.pendingWebOrders || []).find(s => s && s.id === saleId);
       if (!order) return;
       const isDelivery = String(order.type || '').includes('Domicilio');
       const rawSum = (order.itemsList || []).reduce((a, b) => a + (Number(b.price) * Number(b.qty)), 0);
@@ -1579,7 +1590,19 @@
       state.posDeliveryMapUrl = order.deliveryMapUrl || '';
       const nextCalc = getPosCalculations();
       state.cashReceived = String(nextCalc.finalChargeToday);
-      showToast(`📥 Pedido ${order.id} cargado en Caja listo para cobrar`);
+      showToast(`📥 Pedido ${order.id} cargado en Caja`);
+      renderApp();
+    };
+
+    window.discardPendingWebOrder = function (saleId) {
+      state.pendingWebOrders = (state.pendingWebOrders || []).filter(s => s && s.id !== saleId);
+      if (state.activeWebOrderId === saleId) {
+        state.activeWebOrderId = null;
+        state.posCart = [];
+        state.posCustomerName = 'Cliente Mostrador';
+      }
+      saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+      showToast(`🗑️ Pedido pendiente ${saleId} descartado`);
       renderApp();
     };
 
@@ -1610,91 +1633,76 @@
         }
       }
 
-      const existingWebIdx = state.activeWebOrderId ? state.salesHistory.findIndex(s => s && s.id === state.activeWebOrderId) : -1;
-      const existingWebOrder = existingWebIdx !== -1 ? state.salesHistory[existingWebIdx] : null;
-      const shouldDeductStock = !existingWebOrder || existingWebOrder.stockDeducted === false;
-
-      if (shouldDeductStock) {
-        for (const item of state.posCart) {
-          const prodInStock = state.products.find(p => p.id === item.productId);
-          const currentAvail = prodInStock && prodInStock.sizes ? Number(prodInStock.sizes[item.size] || 0) : 0;
-          if (!prodInStock || currentAvail < item.qty) {
-            showToast(`🚨 Stock agotado o insuficiente para "${item.name}" (Talla ${item.size}). Disponibles: ${currentAvail}`, 'error');
-            return;
-          }
+      for (const item of state.posCart) {
+        const prodInStock = state.products.find(p => p.id === item.productId);
+        const currentAvail = prodInStock && prodInStock.sizes ? Number(prodInStock.sizes[item.size] || 0) : 0;
+        if (!prodInStock || currentAvail < item.qty) {
+          showToast(`🚨 Stock agotado o insuficiente para "${item.name}" (Talla ${item.size}). Disponibles: ${currentAvail}`, 'error');
+          return;
         }
-
-        state.products = state.products.map(p => {
-          const nextSizes = { ...p.sizes };
-          state.posCart.forEach(item => {
-            if (item.productId === p.id && nextSizes[item.size] !== undefined) {
-              nextSizes[item.size] = Math.max(0, Number(nextSizes[item.size] || 0) - Number(item.qty || 0));
-            }
-          });
-          return { ...p, sizes: nextSizes };
-        });
-        saveStored('rb_boutique_products', state.products);
       }
 
+      // DESCUENTA EL STOCK UNA SOLA VEZ AL COBRAR EN CAJA
+      state.products = state.products.map(p => {
+        const nextSizes = { ...p.sizes };
+        state.posCart.forEach(item => {
+          if (item.productId === p.id && nextSizes[item.size] !== undefined) {
+            nextSizes[item.size] = Math.max(0, Number(nextSizes[item.size] || 0) - Number(item.qty || 0));
+          }
+        });
+        return { ...p, sizes: nextSizes };
+      });
+      saveStored('rb_boutique_products', state.products);
+
+      const isFromWeb = Boolean(state.activeWebOrderId);
+      const folio = state.activeWebOrderId || `TCK-${Math.floor(1000 + Math.random() * 9000)}`;
       const typeLabel = state.posDeliveryType === 'domicilio' ? '🛵 Domicilio' : '🏪 Mostrador';
       const payLabel = state.posPaymentStatus === 'anticipo' ? 'Anticipo' : '100% Liquidado';
 
-      if (existingWebOrder) {
-        const folio = existingWebOrder.id;
-        const updatedSale = {
-          ...existingWebOrder,
-          date: new Date().toLocaleDateString(),
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          customer: state.posCustomerName || existingWebOrder.customer,
-          type: `${typeLabel} (${payLabel})`,
-          method: state.posPaymentMethod.toUpperCase(),
-          bankStatus: state.posPaymentMethod === 'efectivo' ? 'En Cajón' : 'Verificado en Banco ✅',
-          status: state.posPaymentStatus === 'anticipo' ? 'Anticipo Pagado' : 'Completado',
-          stockDeducted: true,
-          merchandiseTotal: calc.merchandiseTotal,
-          shippingFee: calc.shippingFee,
-          subtotalBeforeFee: calc.subtotalBeforeFee,
-          terminalFee: calc.terminalFee5Pct,
-          total: calc.finalChargeToday,
-          pendingBalance: calc.pendingBalance,
-          cashChange: calc.cashChange,
-          deliveryAddress: state.posDeliveryAddress,
-          deliveryMapUrl: state.posDeliveryMapUrl,
-          itemsList: [...state.posCart],
-          itemsCount: state.posCart.reduce((a, b) => a + b.qty, 0)
-        };
-        state.salesHistory[existingWebIdx] = updatedSale;
-        saveStored('rb_boutique_sales', state.salesHistory);
-        if (state.posCustomerName && state.posCustomerName !== 'Cliente Mostrador') {
-          processReferralSuccess(state.posCustomerName);
-        }
-        state.activeWebOrderId = null;
-        state.lastReceipt = updatedSale;
-        state.posCart = [];
-        state.cashReceived = '';
-        checkLowStockAlert();
-        showToast(`✅ Venta Web ${folio} efectuada y reflejada en el perfil del cliente`);
-        renderApp();
-        return;
-      }
-
-      const folio = `TCK-${Math.floor(1000 + Math.random() * 9000)}`;
       const saleObj = {
-        id: folio, date: new Date().toLocaleDateString(), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        customer: state.posCustomerName || 'Cliente Mostrador', channel: 'POS Mostrador', type: `${typeLabel} (${payLabel})`,
-        method: state.posPaymentMethod.toUpperCase(), bankStatus: state.posPaymentMethod === 'efectivo' ? 'En Cajón' : 'Pendiente Banco', status: 'Completado',
+        id: folio,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        customer: state.posCustomerName || 'Cliente Mostrador',
+        channel: isFromWeb ? 'Catálogo App' : 'POS Mostrador',
+        type: `${typeLabel} (${payLabel})`,
+        method: state.posPaymentMethod.toUpperCase(),
+        bankStatus: state.posPaymentMethod === 'efectivo' ? 'En Cajón' : 'Pendiente Banco',
+        status: state.posPaymentStatus === 'anticipo' ? 'Anticipo Pagado' : 'Completado',
         stockDeducted: true,
-        merchandiseTotal: calc.merchandiseTotal, shippingFee: calc.shippingFee, subtotalBeforeFee: calc.subtotalBeforeFee, terminalFee: calc.terminalFee5Pct, total: calc.finalChargeToday, pendingBalance: calc.pendingBalance, cashChange: calc.cashChange, deliveryAddress: state.posDeliveryAddress, deliveryMapUrl: state.posDeliveryMapUrl, itemsList: [...state.posCart], itemsCount: state.posCart.reduce((a,b)=>a+b.qty,0)
+        merchandiseTotal: calc.merchandiseTotal,
+        shippingFee: calc.shippingFee,
+        subtotalBeforeFee: calc.subtotalBeforeFee,
+        terminalFee: calc.terminalFee5Pct,
+        total: calc.finalChargeToday,
+        pendingBalance: calc.pendingBalance,
+        cashChange: calc.cashChange,
+        deliveryAddress: state.posDeliveryAddress,
+        deliveryMapUrl: state.posDeliveryMapUrl,
+        itemsList: [...state.posCart],
+        itemsCount: state.posCart.reduce((a, b) => a + b.qty, 0)
       };
 
-      state.salesHistory = [saleObj, ...state.salesHistory]; saveStored('rb_boutique_sales', state.salesHistory);
-      
+      // ELIMINA LA NOTIFICACIÓN DE PENDIENTE Y PASA 1 SOLO TICKET AL HISTORIAL
+      if (state.activeWebOrderId) {
+        state.pendingWebOrders = (state.pendingWebOrders || []).filter(s => s && s.id !== state.activeWebOrderId);
+        saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+        state.activeWebOrderId = null;
+      }
+
+      state.salesHistory = [saleObj, ...state.salesHistory];
+      saveStored('rb_boutique_sales', state.salesHistory);
+
       if (state.posCustomerName && state.posCustomerName !== 'Cliente Mostrador') {
         processReferralSuccess(state.posCustomerName);
       }
 
-      state.lastReceipt = saleObj; state.posCart = []; state.cashReceived = ''; checkLowStockAlert();
-      showToast(`✅ Venta ${folio} cobrada con éxito`); renderApp();
+      state.lastReceipt = saleObj;
+      state.posCart = [];
+      state.cashReceived = '';
+      checkLowStockAlert();
+      showToast(`✅ Venta ${folio} cobrada con éxito`);
+      renderApp();
     };
     function renderWelcomeAccessScreenHTML() {
       return `
@@ -2540,7 +2548,7 @@
                   <div class="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl shadow-lg relative"><h3 class="font-black text-pink-400 text-xs mb-2.5 uppercase tracking-wider">🔍 Escáner / Buscador Rápido de Prendas</h3><div class="relative"><svg class="w-5 h-5 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><input type="text" value="${state.posSearch.replace(/"/g, '&quot;')}" oninput="state.posSearch=this.value; renderApp();" placeholder="Escribe el nombre o código SKU..." class="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-700 text-white text-sm focus:border-pink-500 outline-none shadow-inner" /></div>${state.posSearch.trim().length > 0 ? `<div class="absolute left-5 right-5 top-[92px] z-50 bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl max-h-64 overflow-y-auto divide-y divide-zinc-800 mt-1">${getFilteredPosProducts().length === 0 ? '<div class="p-4 text-center text-zinc-400 text-xs">No se encontraron prendas.</div>' : getFilteredPosProducts().map(p => `<div onclick="addPosItemFromSearch('${p.id}')" class="p-3 bg-zinc-900 hover:bg-zinc-800 flex items-center justify-between cursor-pointer transition"><div class="flex items-center gap-3"><img src="${p.image}" class="w-10 h-12 rounded-lg object-cover" /><div><p class="text-xs text-white font-bold">${p.name}</p><span class="text-[10px] text-pink-400 font-mono">${p.sku} • Stock: ${getTotalStock(p)}</span></div></div><span class="text-sm font-black text-emerald-400">$${p.price}</span></div>`).join('')}</div>` : ''}</div>
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-5 shadow-lg">
                     ${(() => {
-                      const pendingWebOrders = (state.salesHistory || []).filter(s => s && s.channel === 'Catálogo App' && (s.status === 'Pendiente Entrega' || s.status === 'Esperando 50%'));
+                      const pendingWebOrders = state.pendingWebOrders || [];
                       if (pendingWebOrders.length === 0) return '';
                       return `
                         <div class="p-4 rounded-2xl bg-pink-950/40 border-2 border-pink-500/60 space-y-3 animate-fade">
