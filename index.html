@@ -2548,6 +2548,118 @@
             <main class="max-w-[1400px] mx-auto px-4 py-6 animate-fade">
               <div class="grid grid-cols-1 lg:grid-cols-12 gap-7">
                 <div class="lg:col-span-7 space-y-5">
+                ${(() => {
+                    window.addPosItemFromSearch = function (productId) {
+                      const p = (state.products || []).find(x => String(x.id) === String(productId));
+                      if (!p) return;
+                      const sizesObj = p.sizes || {};
+                      const firstAvail = Object.entries(sizesObj).find(([, q]) => Number(q) > 0)?.[0] || Object.keys(sizesObj)[0] || 'UNITALLA';
+                      if (Number(sizesObj[firstAvail] || 0) <= 0) { showToast('Prenda agotada sin stock', 'error'); return; }
+                      const cartId = p.id + '-' + firstAvail;
+                      const existing = state.posCart.find(i => i.cartId === cartId);
+                      if (existing) {
+                        if (existing.qty + 1 > Number(sizesObj[firstAvail])) { showToast('Stock máximo alcanzado', 'error'); return; }
+                        existing.qty += 1;
+                      } else {
+                        state.posCart.push({ cartId: cartId, productId: p.id, sku: p.sku, name: p.name, price: Number(p.price) || 0, size: firstAvail, qty: 1 });
+                      }
+                      state.posSearch = '';
+                      showToast('Agregado a Caja: ' + p.name + ' (' + firstAvail + ')');
+                      renderApp();
+                    };
+
+                    const listA = normalizeFirebaseList(state.pendingWebOrders);
+                    const listB = (state.salesHistory || []).filter(s => s && s.channel === 'Catálogo App' && (s.status === 'Pendiente Entrega' || s.status === 'Esperando 50%'));
+                    const mapOrders = new Map();
+                    [...listA, ...listB].forEach(o => { if (o && o.id) mapOrders.set(o.id, o); });
+                    const allPendingOrders = Array.from(mapOrders.values());
+
+                    window.enlazarPedidoWebACaja = function (saleId) {
+                      const order = allPendingOrders.find(s => s && s.id === saleId);
+                      if (!order) return;
+                      const isDelivery = String(order.type || '').includes('Domicilio');
+                      const rawSum = (order.itemsList || []).reduce((a, b) => a + (Number(b.price) * Number(b.qty)), 0);
+                      const expectedNet = isDelivery ? Math.max(0, (Number(order.total) - 80) * 2) : Number(order.total);
+                      const discountRatio = (rawSum > 0 && expectedNet > 0 && expectedNet < rawSum) ? (expectedNet / rawSum) : 1;
+
+                      state.activeWebOrderId = order.id;
+                      state.posCustomerName = order.customer || 'Cliente Web (VIP)';
+                      state.posCart = (order.itemsList || []).map(it => ({
+                        cartId: it.cartId || (it.productId + '-' + it.size),
+                        productId: it.productId,
+                        sku: it.sku || 'WEB',
+                        name: it.name,
+                        price: Math.round(Number(it.price || 0) * discountRatio),
+                        size: it.size,
+                        qty: Number(it.qty) || 1
+                      }));
+                      state.posDeliveryType = isDelivery ? 'domicilio' : 'mostrador';
+                      state.posPaymentStatus = String(order.type || '').includes('Anticipo') ? 'anticipo' : '100';
+                      state.posDeliveryAddress = order.deliveryAddress || '';
+                      state.posDeliveryMapUrl = order.deliveryMapUrl || '';
+                      const nextCalc = getPosCalculations();
+                      state.cashReceived = String(nextCalc.finalChargeToday);
+                      showToast('✅ Pedido ' + order.id + ' enlazado al Ticket de Cobro en Caja');
+                      renderApp();
+                    };
+
+                    window.descartarPedidoWeb = function (saleId) {
+                      state.pendingWebOrders = normalizeFirebaseList(state.pendingWebOrders).filter(s => s && s.id !== saleId);
+                      saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+                      state.salesHistory = (state.salesHistory || []).filter(s => !(s && s.id === saleId && (s.status === 'Pendiente Entrega' || s.status === 'Esperando 50%')));
+                      saveStored('rb_boutique_sales', state.salesHistory);
+                      if (state.activeWebOrderId === saleId) {
+                        state.activeWebOrderId = null;
+                        state.posCart = [];
+                        state.posCustomerName = 'Cliente Mostrador';
+                      }
+                      showToast('🗑️ Pedido web descartado');
+                      renderApp();
+                    };
+
+                    return `
+                      <div class="bg-zinc-900 border-2 ${allPendingOrders.length > 0 ? 'border-pink-500 shadow-[0_0_25px_rgba(236,72,153,0.2)]' : 'border-zinc-800'} p-5 rounded-3xl space-y-3.5">
+                        <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+                          <div class="flex items-center gap-2.5">
+                            <span class="w-9 h-9 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-base font-black">🌐</span>
+                            <div>
+                              <h3 class="font-black text-white text-sm uppercase tracking-wider">Ventana de Pedidos Web en Línea</h3>
+                              <p class="text-[10px] text-zinc-400">Enlaza el pedido del cliente directamente a tu Ticket de Cobro en Caja</p>
+                            </div>
+                          </div>
+                          <span class="px-3 py-1 rounded-full text-xs font-black ${allPendingOrders.length > 0 ? 'bg-pink-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-400'}">${allPendingOrders.length} pendiente(s)</span>
+                        </div>
+
+                        ${allPendingOrders.length === 0 ? `
+                          <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800/80 text-center text-xs text-zinc-500 font-bold">
+                            No hay pedidos web pendientes en este momento. Cuando un cliente confirme su carrito, aparecerá aquí.
+                          </div>
+                        ` : `
+                          <div class="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                            ${allPendingOrders.map(ord => `
+                              <div class="p-3.5 rounded-2xl bg-zinc-950 border ${state.activeWebOrderId === ord.id ? 'border-emerald-500 ring-1 ring-emerald-500/40' : 'border-pink-500/40'} flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                                <div class="space-y-1">
+                                  <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="font-mono font-black text-pink-400 bg-pink-500/10 px-2 py-0.5 rounded border border-pink-500/20">${ord.id}</span>
+                                    <span class="font-black text-white text-sm">${ord.customer}</span>
+                                    <span class="text-[10px] text-zinc-400">${ord.time || ''}</span>
+                                  </div>
+                                  <p class="text-[11px] text-zinc-300">${(ord.itemsList || []).map(it => it.qty + 'x ' + it.name + ' (' + it.size + ')').join(', ')}</p>
+                                  <p class="text-[10px] text-zinc-400">${ord.type} • Total a cobrar: <strong class="text-emerald-400 text-xs">$${ord.total} MXN</strong></p>
+                                </div>
+                                <div class="flex items-center gap-2 shrink-0">
+                                  <button type="button" onclick="enlazarPedidoWebACaja('${ord.id}')" class="px-4 py-2.5 rounded-xl ${state.activeWebOrderId === ord.id ? 'bg-emerald-600 text-white' : 'bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white'} font-black text-xs shadow-lg transition">
+                                    ${state.activeWebOrderId === ord.id ? '✓ Enlazado en Caja' : '🔗 Enlazar a Ticket de Cobro'}
+                                  </button>
+                                  <button type="button" onclick="descartarPedidoWeb('${ord.id}')" class="px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-rose-600 text-zinc-400 hover:text-white font-bold text-xs transition" title="Descartar pedido">🗑️</button>
+                                </div>
+                              </div>
+                            `).join('')}
+                          </div>
+                        `}
+                      </div>
+                    `;
+                  })()}
                   <div class="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl shadow-lg relative"><h3 class="font-black text-pink-400 text-xs mb-2.5 uppercase tracking-wider">🔍 Escáner / Buscador Rápido de Prendas</h3><div class="relative"><svg class="w-5 h-5 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><input type="text" value="${state.posSearch.replace(/"/g, '&quot;')}" oninput="state.posSearch=this.value; renderApp();" placeholder="Escribe el nombre o código SKU..." class="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-700 text-white text-sm focus:border-pink-500 outline-none shadow-inner" /></div>${state.posSearch.trim().length > 0 ? `<div class="absolute left-5 right-5 top-[92px] z-50 bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl max-h-64 overflow-y-auto divide-y divide-zinc-800 mt-1">${getFilteredPosProducts().length === 0 ? '<div class="p-4 text-center text-zinc-400 text-xs">No se encontraron prendas.</div>' : getFilteredPosProducts().map(p => `<div onclick="addPosItemFromSearch('${p.id}')" class="p-3 bg-zinc-900 hover:bg-zinc-800 flex items-center justify-between cursor-pointer transition"><div class="flex items-center gap-3"><img src="${p.image}" class="w-10 h-12 rounded-lg object-cover" /><div><p class="text-xs text-white font-bold">${p.name}</p><span class="text-[10px] text-pink-400 font-mono">${p.sku} • Stock: ${getTotalStock(p)}</span></div></div><span class="text-sm font-black text-emerald-400">$${p.price}</span></div>`).join('')}</div>` : ''}</div>
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-5 shadow-lg">
                     ${(() => {
