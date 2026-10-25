@@ -3190,16 +3190,16 @@
         `;
       }
 
-      // RASTREADOR EN TIEMPO REAL ESTILO MERCADO PAGO (EN MI CARRITO Y EN MIS COMPRAS Y APARTADOS)
+      // RASTREADOR EN TIEMPO REAL ESTILO MERCADO PAGO (VISIBLE PARA TODOS Y BÚSQUEDA ESTRICTA)
       {
         const savedFolio = state.activeTrackingFolio || (() => { try { return window.localStorage.getItem('rb_boutique_active_folio'); } catch (e) { return null; } })();
         const pendingList = normalizeFirebaseList(state.pendingWebOrders);
         const completedList = state.salesHistory || [];
-        const userName = state.currentUser && state.currentUser.name ? state.currentUser.name.trim().toLowerCase() : '';
-
+        
         let trackedOrder = null;
         let currentStep = 0;
 
+        // BÚSQUEDA ESTRICTA: Solo busca el folio activo exacto generado en esta sesión
         if (savedFolio) {
           const inPending = pendingList.find(o => o && o.id === savedFolio);
           const inSales = completedList.find(o => o && o.id === savedFolio && !String(o.status).includes('Devuelto'));
@@ -3210,23 +3210,6 @@
             trackedOrder = inSales;
             currentStep = 3;
           }
-        }
-
-        if (!trackedOrder && userName) {
-          const inPendingByUser = pendingList.find(o => o && String(o.customer || '').toLowerCase().includes(userName));
-          const inSalesByUser = completedList.find(o => o && o.channel === 'Catálogo App' && String(o.customer || '').toLowerCase().includes(userName) && !String(o.status).includes('Devuelto'));
-          if (inPendingByUser) {
-            trackedOrder = inPendingByUser;
-            currentStep = Number(inPendingByUser.trackingStep) === 2 ? 2 : 1;
-          } else if (inSalesByUser) {
-            trackedOrder = inSalesByUser;
-            currentStep = 3;
-          }
-        }
-
-        if (!trackedOrder && pendingList.length > 0) {
-          trackedOrder = pendingList[0];
-          currentStep = Number(trackedOrder.trackingStep) === 2 ? 2 : 1;
         }
 
         if (trackedOrder) {
@@ -3268,7 +3251,7 @@
                   <div class="h-full rounded-full transition-all duration-700 mp-bar-anim" style="width: ${progressWidth}; background-image: linear-gradient(90deg, ${stepColor}, #ec4899, ${stepColor});"></div>
                 </div>
                 <div class="flex justify-between text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                  <span class="${currentStep >= 1 ? 'text-sky-400' : ''}">1. Confirmando Pago</span>
+                  <span class="${currentStep >= 1 ? 'text-sky-400' : ''}">1. Pago</span>
                   <span class="${currentStep >= 2 ? 'text-amber-400' : ''}">2. Surtiendo</span>
                   <span class="${currentStep >= 3 ? 'text-emerald-400' : ''}">3. Listo Entrega</span>
                 </div>
@@ -3296,22 +3279,15 @@
             </div>
           `;
 
-          // INYECTAR AUTOMÁTICAMENTE EN "MIS COMPRAS Y APARTADOS" DEL CLIENTE
+          // INYECTAR EN "MIS COMPRAS Y APARTADOS"
           html = html.replace(/(Mis Compras y Apartados<\/h3>)/, '$1' + mpTrackerCardHTML);
 
-          // MOSTRAR EL RASTREADOR COMPLETO CUANDO EL CLIENTE ABRE "MI CARRITO"
+          // RASTREADOR DESPLEGADO AL ABRIR "MI CARRITO"
           if (state.isBagOpen) {
             html += `
               <style>
-                @keyframes mpPulseRing {
-                  0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(0, 158, 227, 0.7); }
-                  70% { transform: scale(1); box-shadow: 0 0 0 16px rgba(0, 158, 227, 0); }
-                  100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(0, 158, 227, 0); }
-                }
-                @keyframes mpBarFlow {
-                  0% { background-position: 0% 50%; }
-                  100% { background-position: 200% 50%; }
-                }
+                @keyframes mpPulseRing { 0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(0, 158, 227, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 16px rgba(0, 158, 227, 0); } 100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(0, 158, 227, 0); } }
+                @keyframes mpBarFlow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
                 .mp-pulse { animation: mpPulseRing 2s infinite; }
                 .mp-bar-anim { background-size: 200% 100%; animation: mpBarFlow 2.2s linear infinite; }
               </style>
@@ -3335,21 +3311,21 @@
                   </div>
 
                   <div class="p-4 border-t border-zinc-800 bg-zinc-900/95 space-y-2">
-                    <div class="grid grid-cols-2 gap-2">
-                      <button type="button" onclick="state.isBagOpen=false; state.whatsappCheckoutModal = state.lastPaymentBackup || { folio: '${trackedOrder.id}', calc: { requiredAdvance50: '${trackedOrder.total}' }, items: [] }; renderApp();" class="py-3 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-[11px] flex items-center justify-center gap-1.5">
-                        🏦 Ver CLABE / Tarjeta
-                      </button>
-                      <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=${encodeURIComponent(`Hola RB Boutique! Envío el comprobante de mi pedido con Folio ${trackedOrder.id} por $${trackedOrder.total} MXN:`)}" target="_blank" class="py-3 px-3 rounded-xl bg-[#25D366] text-white font-black text-[11px] flex items-center justify-center gap-1.5 shadow-lg">
-                        📲 Enviar Comprobante
-                      </a>
-                    </div>
                     ${currentStep === 3 ? `
-                      <button type="button" onclick="state.activeTrackingFolio=null; try{window.localStorage.removeItem('rb_boutique_active_folio');}catch(e){} state.isBagOpen=false; renderApp();" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs">
-                        ✓ Pedido Listo • Hacer un Nuevo Pedido
+                      <button type="button" onclick="state.activeTrackingFolio=null; try{window.localStorage.removeItem('rb_boutique_active_folio');}catch(e){} state.isBagOpen=false; renderApp();" class="w-full py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-lg transition">
+                        ✓ Cerrar Ventana y Finalizar
                       </button>
                     ` : `
+                      <div class="grid grid-cols-2 gap-2">
+                        <button type="button" onclick="state.isBagOpen=false; state.whatsappCheckoutModal = state.lastPaymentBackup || { folio: '${trackedOrder.id}', calc: { requiredAdvance50: '${trackedOrder.total}' }, items: [] }; renderApp();" class="py-3 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-[11px] flex items-center justify-center gap-1.5">
+                          🏦 Ver Datos de Pago
+                        </button>
+                        <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=${encodeURIComponent(`Hola RB Boutique! Envío el comprobante de mi pedido con Folio ${trackedOrder.id} por $${trackedOrder.total} MXN:`)}" target="_blank" class="py-3 px-3 rounded-xl bg-[#25D366] text-white font-black text-[11px] flex items-center justify-center gap-1.5 shadow-lg">
+                          📲 Enviar Comprobante
+                        </a>
+                      </div>
                       <button type="button" onclick="state.isBagOpen=false; renderApp();" class="w-full py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white font-bold text-xs">
-                        Cerrar ventana (el rastreo sigue activo)
+                        Minimizar (el rastreo sigue activo)
                       </button>
                     `}
                   </div>
@@ -3359,7 +3335,6 @@
           }
         }
       }
-
       if (state.showNewProductModal) {
         const np = state.newProd; const availableSubcategories = getCategorySubcategories(np.category);
         html += `<div class="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto no-print"><form onsubmit="submitNewProduct(event)" class="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-lg w-full p-7 space-y-5 text-white my-8 shadow-2xl animate-fade"><div class="flex items-center justify-between border-b border-zinc-800 pb-3"><div><h3 class="font-black text-base">${state.isEditingProduct ? '✏️ Modificar Prenda' : '+ Publicar Nueva Prenda'}</h3></div><button type="button" onclick="state.showNewProductModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400">✕</button></div><div class="space-y-4 text-xs max-h-[70vh] overflow-y-auto pr-2"><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">1. Clasificación</p><div class="grid grid-cols-2 gap-3"><div><label class="block mb-1.5 text-zinc-400 font-bold">Departamento (Tallas)</label><select onchange="state.newProd.department=this.value; state.newProd.sku=this.value.slice(0,3).toUpperCase()+'-'+Math.floor(200+Math.random()*700); renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${['Mujer', 'Hombres', 'Niñas', 'Niños', 'Tenis', 'Accesorios'].map(d => `<option value="${d}" ${np.department === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div><div><label class="block mb-1.5 text-zinc-400 font-bold">Categoría</label><select onchange="state.newProd.category=this.value; const subs=getCategorySubcategories(this.value); state.newProd.subcategory=subs[0]||''; if(this.value.toLowerCase()==='paca'){ state.newProd.sku='PAC-'+Math.floor(200+Math.random()*700); } renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold">${[...new Set(['Vestidos', 'Conjuntos', 'Denim', 'Bolsos', 'Paca', ...state.visualCategories.map(c=>c.id)])].filter(c=>c!=='Todo').map(c => `<option value="${c}" ${np.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>${availableSubcategories.length > 0 ? `<div class="pt-2 border-t border-zinc-800/80 animate-fade"><label class="block mb-1.5 text-pink-400 font-black">↳ Subcategoría</label><select onchange="state.newProd.subcategory=this.value; if(this.value.includes('Niños')){state.newProd.department='Niños';} else if(this.value.includes('Niñas')){state.newProd.department='Niñas';} else if(this.value.includes('Hombre')){state.newProd.department='Hombres';} else if(this.value.includes('Mujer')){state.newProd.department='Mujer';} renderApp();" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-pink-500/50 text-white font-black">${availableSubcategories.map(sub => `<option value="${sub}" ${(np.subcategory || availableSubcategories[0]) === sub ? 'selected' : ''}>${sub}</option>`).join('')}</select></div>` : ''}</div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">2. Precios</p><div class="grid grid-cols-3 gap-3"><div class="col-span-2"><label class="block mb-1.5 text-zinc-400 font-bold">Nombre</label><input type="text" required value="${np.name}" oninput="state.newProd.name=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div><div><label class="block mb-1.5 text-zinc-400 font-bold">SKU</label><input type="text" value="${np.sku}" oninput="state.newProd.sku=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div></div><div class="grid grid-cols-3 gap-3"><div><label class="block mb-1.5 text-zinc-400 font-bold">P. Normal</label><input type="number" value="${np.originalPrice}" oninput="state.newProd.originalPrice=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div><div><label class="block mb-1.5 text-emerald-400 font-bold">P. Oferta</label><input type="number" required value="${np.price}" oninput="state.newProd.price=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border-2 border-emerald-500/50 text-emerald-400 font-black" /></div><div><label class="block mb-1.5 text-zinc-400 font-bold">Tu Costo</label><input type="number" value="${np.cost}" oninput="state.newProd.cost=this.value;" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-400" /></div></div></div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase mb-2">3. Subir Fotografía</p> <div class="flex items-center gap-4 bg-zinc-900 p-3 rounded-xl border border-zinc-700">   <div class="w-16 h-20 rounded-lg bg-black border border-zinc-600 overflow-hidden shrink-0 flex items-center justify-center">     ${np.image ? `<img src="${np.image}" class="w-full h-full object-cover" />` : '<span class="text-2xl">📷</span>'}   </div>   <div class="flex-1">     <p class="text-[10px] text-zinc-400 mb-2 leading-tight">La foto se ajustará automáticamente sin deformarse gracias al auto-recorte inteligente.</p>     <label class="flex items-center justify-center w-full px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-white cursor-pointer transition shadow-md">       <span id="upload-text-btn" class="text-xs font-black">Subir desde Galería / Archivos</span>       <input type="file" accept="image/*" class="hidden" onchange="uploadProductImage(event)" />     </label>   </div> </div></div><div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"><p class="font-black text-pink-400 text-[10px] uppercase">4. Inventario Físico</p>${np.department === 'Accesorios' ? `<div><label class="block mb-1.5 text-zinc-400 font-bold">UNITALLA</label><input type="number" value="${np.unitallaStock}" oninput="state.newProd.unitallaStock=Number(this.value);" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black" /></div>` : np.department === 'Tenis' ? `<div class="grid grid-cols-4 sm:grid-cols-7 gap-2">${['22','23','24','25','26','27','28'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">${sz}</label><input type="number" value="${np.shoeSizes[sz]}" oninput="state.newProd.shoeSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>` : (np.department === 'Niñas' || np.department === 'Niños') ? `<div class="grid grid-cols-5 gap-2">${['4','6','8','10','12'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">T-${sz}</label><input type="number" value="${np.kidsSizes[sz]}" oninput="state.newProd.kidsSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>` : `<div class="grid grid-cols-5 gap-2">${['XS','S','M','L','XL'].map(sz => `<div><label class="block text-center mb-1 text-[10px] text-zinc-500">${sz}</label><input type="number" value="${np.adultSizes[sz]}" oninput="state.newProd.adultSizes['${sz}']=Number(this.value);" class="w-full px-2 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-center font-bold text-white"/></div>`).join('')}</div>`}</div></div><button type="submit" class="w-full py-4 rounded-xl bg-pink-600 text-white font-black text-sm shadow-lg">${state.isEditingProduct ? 'Guardar Cambios' : 'Publicar en Catálogo'}</button></form></div>`;
