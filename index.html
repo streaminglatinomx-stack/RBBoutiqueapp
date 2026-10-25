@@ -188,12 +188,28 @@
     function loadStored(key, fallback) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
     
     function saveStored(key, data) { 
-      if (key !== 'rb_boutique_visits') window.isSavingData = true; // 🛡️ Levanta el escudo anti-rebote
       try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} 
       if (window.dbRef) { 
+        if (key !== 'rb_boutique_visits') {
+          window.pendingSavesCount = (window.pendingSavesCount || 0) + 1;
+          window.isSavingData = true;
+          if (window.saveShieldTimer) clearTimeout(window.saveShieldTimer);
+        }
         window.dbRef.child(key).set(data)
-          .then(() => { setTimeout(() => { window.isSavingData = false; }, 1500); })
-          .catch(e => { window.isSavingData = false; }); 
+          .then(() => {
+            if (key !== 'rb_boutique_visits') {
+              window.pendingSavesCount = Math.max(0, (window.pendingSavesCount || 1) - 1);
+              if (window.pendingSavesCount === 0) {
+                window.saveShieldTimer = setTimeout(() => { window.isSavingData = false; }, 2000);
+              }
+            }
+          })
+          .catch(e => {
+            if (key !== 'rb_boutique_visits') {
+              window.pendingSavesCount = Math.max(0, (window.pendingSavesCount || 1) - 1);
+              if (window.pendingSavesCount === 0) window.isSavingData = false;
+            }
+          }); 
       } else {
         window.isSavingData = false;
       }
@@ -1032,7 +1048,9 @@
       const validSales = (state.salesHistory || []).filter(s =>
         s.date === todayDateStr &&
         !String(s.status).includes('Devuelto') &&
-        !String(s.bankStatus || '').includes('Rechazado')
+        !String(s.bankStatus || '').includes('Rechazado') &&
+        s.status !== 'Pendiente Entrega' &&
+        s.status !== 'Esperando 50%'
       );
       const totalEfectivoVentas = validSales.filter(s => s.method === 'EFECTIVO').reduce((a, b) => a + Number(b.total || 0), 0);
       const totalTarjetaVentas = validSales.filter(s => s.method === 'TARJETA').reduce((a, b) => a + Number(b.total || 0), 0);
@@ -1190,14 +1208,20 @@
       } else if (action === 'edit') {
         state.editingTicketModal = { saleIndex: orderIndex, id: order.id, customer: order.customer, total: order.total, method: order.method };
       } else if (action === 'delete') {
-        if (!String(order.status).includes('Devuelto') && order.itemsList) {
+        const isPendingWeb = order.status === 'Pendiente Entrega' || order.status === 'Esperando 50%';
+        if (!String(order.status).includes('Devuelto') && !isPendingWeb && order.stockDeducted !== false && order.itemsList) {
           state.products = state.products.map(p => {
             const nextSizes = { ...p.sizes };
-            order.itemsList.forEach(it => { if (it.productId === p.id && nextSizes[it.size] !== undefined) nextSizes[it.size] += it.qty; });
+            order.itemsList.forEach(it => {
+              if (it.productId === p.id && nextSizes[it.size] !== undefined) {
+                nextSizes[it.size] = Number(nextSizes[it.size] || 0) + Number(it.qty || 0);
+              }
+            });
             return { ...p, sizes: nextSizes };
           });
           saveStored('rb_boutique_products', state.products);
         }
+        if (state.activeWebOrderId === order.id) state.activeWebOrderId = null;
         state.salesHistory.splice(orderIndex, 1);
         saveStored('rb_boutique_sales', state.salesHistory);
         showToast('🗑️ Venta eliminada definitivamente del historial');
@@ -1465,7 +1489,6 @@
       const calc = getCustomerBagCalculations();
       if (calc.isHomeDelivery && !state.customerDeliveryAddress.trim()) { showToast('Escribe tu dirección completa para el envío', 'error'); return; }
 
-      // VALIDACIÓN DE INVENTARIO EN TIEMPO REAL ANTES DE PROCESAR EL PEDIDO WEB
       for (const cItem of state.customerCart) {
         const prodInStock = state.products.find(p => p.id === cItem.productId);
         const currentAvail = prodInStock && prodInStock.sizes ? Number(prodInStock.sizes[cItem.size] || 0) : 0;
@@ -1475,14 +1498,6 @@
         }
       }
 
-      state.products = state.products.map(p => {
-        const nextSizes = { ...p.sizes };
-        state.customerCart.forEach(cItem => { if (cItem.productId === p.id && nextSizes[cItem.size] !== undefined) nextSizes[cItem.size] = Math.max(0, nextSizes[cItem.size] - cItem.qty); });
-        return { ...p, sizes: nextSizes };
-      });
-      saveStored('rb_boutique_products', state.products);
-
-      // MOVER CUPÓN USADO A LA BÓVEDA DE HISTORIAL DE CUPONES (giftHistory)
       if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.savedForLater && !isGiftExpired(state.currentUser.vipGift)) {
         archiveClientVipGift(state.currentUser, 'Usado en Compra ✅');
         state.currentUser.vipGift = null;
@@ -1491,9 +1506,9 @@
         saveStored('rb_boutique_current_user', state.currentUser);
       }
 
-      if(state.currentUser && state.customerDeliveryAddress) {
-          updateProfileData('address', state.customerDeliveryAddress);
-          if(state.customerDeliveryMapUrl) updateProfileData('mapsUrl', state.customerDeliveryMapUrl);
+      if (state.currentUser && state.customerDeliveryAddress) {
+        updateProfileData('address', state.customerDeliveryAddress);
+        if (state.customerDeliveryMapUrl) updateProfileData('mapsUrl', state.customerDeliveryMapUrl);
       }
 
       const folio = `WEB-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1501,16 +1516,29 @@
         id: folio,
         date: new Date().toLocaleDateString(),
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        customer: `${state.currentUser ? state.currentUser.name : 'Cliente Web'} (VIP)`, channel: 'Catálogo App',
+        customer: `${state.currentUser ? state.currentUser.name : 'Cliente Web'} (VIP)`,
+        channel: 'Catálogo App',
         type: calc.isHomeDelivery ? '🛵 Domicilio (50% Anticipo)' : '🏪 Apartado (Mostrador)',
-        method: 'TRANSFERENCIA', bankStatus: 'Pendiente Banco', status: calc.isHomeDelivery ? 'Esperando 50%' : 'Pendiente Entrega',
-        subtotalBeforeFee: calc.requiredAdvance50, terminalFee: 0,
-        total: calc.requiredAdvance50, deliveryAddress: state.customerDeliveryAddress, deliveryMapUrl: state.customerDeliveryMapUrl, itemsList: [...state.customerCart], itemsCount: state.customerCart.reduce((a,b)=>a+b.qty,0)
+        method: 'TRANSFERENCIA',
+        bankStatus: 'Pendiente Banco',
+        status: calc.isHomeDelivery ? 'Esperando 50%' : 'Pendiente Entrega',
+        stockDeducted: false,
+        subtotalBeforeFee: calc.requiredAdvance50,
+        terminalFee: 0,
+        total: calc.requiredAdvance50,
+        deliveryAddress: state.customerDeliveryAddress,
+        deliveryMapUrl: state.customerDeliveryMapUrl,
+        itemsList: [...state.customerCart],
+        itemsCount: state.customerCart.reduce((a, b) => a + b.qty, 0)
       };
 
-      state.salesHistory = [newRecord, ...state.salesHistory]; saveStored('rb_boutique_sales', state.salesHistory);
+      state.salesHistory = [newRecord, ...state.salesHistory];
+      saveStored('rb_boutique_sales', state.salesHistory);
       state.whatsappCheckoutModal = { folio, calc, items: [...state.customerCart] };
-      state.customerCart = []; state.isBagOpen = false; showToast(`¡Pedido ${folio} registrado!`); renderApp();
+      state.customerCart = [];
+      state.isBagOpen = false;
+      showToast(`¡Pedido ${folio} enviado a Caja!`);
+      renderApp();
     };
 
     window.addPosItemFromSearch = function (productId) {
@@ -1549,7 +1577,9 @@
       state.posPaymentStatus = String(order.type || '').includes('Anticipo') ? 'anticipo' : '100';
       state.posDeliveryAddress = order.deliveryAddress || '';
       state.posDeliveryMapUrl = order.deliveryMapUrl || '';
-      showToast(`📥 Pedido ${order.id} cargado en Caja para cobro`);
+      const nextCalc = getPosCalculations();
+      state.cashReceived = String(nextCalc.finalChargeToday);
+      showToast(`📥 Pedido ${order.id} cargado en Caja listo para cobrar`);
       renderApp();
     };
 
@@ -1559,6 +1589,7 @@
       state.posCustomerName = 'Cliente Mostrador';
       state.posDeliveryAddress = '';
       state.posDeliveryMapUrl = '';
+      state.cashReceived = '';
       showToast('Pedido web desvinculado de la caja');
       renderApp();
     };
@@ -1568,92 +1599,103 @@
       const calc = getPosCalculations();
 
       if (state.posPaymentMethod === 'efectivo') {
+        if (state.cashReceived === '' || state.cashReceived === null || state.cashReceived === undefined) {
+          state.cashReceived = String(calc.finalChargeToday);
+        }
         const receivedAmount = Number(state.cashReceived);
-        if (!state.cashReceived || isNaN(receivedAmount) || receivedAmount < calc.finalChargeToday) {
+        if (isNaN(receivedAmount) || receivedAmount < calc.finalChargeToday) {
           const missing = Math.max(0, calc.finalChargeToday - (receivedAmount || 0));
           showToast(`⚠️ Monto en efectivo insuficiente. Faltan $${missing} MXN para cubrir los $${calc.finalChargeToday} MXN.`, 'error');
           return;
         }
       }
 
+      const existingWebIdx = state.activeWebOrderId ? state.salesHistory.findIndex(s => s && s.id === state.activeWebOrderId) : -1;
+      const existingWebOrder = existingWebIdx !== -1 ? state.salesHistory[existingWebIdx] : null;
+      const shouldDeductStock = !existingWebOrder || existingWebOrder.stockDeducted === false;
+
+      if (shouldDeductStock) {
+        for (const item of state.posCart) {
+          const prodInStock = state.products.find(p => p.id === item.productId);
+          const currentAvail = prodInStock && prodInStock.sizes ? Number(prodInStock.sizes[item.size] || 0) : 0;
+          if (!prodInStock || currentAvail < item.qty) {
+            showToast(`🚨 Stock agotado o insuficiente para "${item.name}" (Talla ${item.size}). Disponibles: ${currentAvail}`, 'error');
+            return;
+          }
+        }
+
+        state.products = state.products.map(p => {
+          const nextSizes = { ...p.sizes };
+          state.posCart.forEach(item => {
+            if (item.productId === p.id && nextSizes[item.size] !== undefined) {
+              nextSizes[item.size] = Math.max(0, Number(nextSizes[item.size] || 0) - Number(item.qty || 0));
+            }
+          });
+          return { ...p, sizes: nextSizes };
+        });
+        saveStored('rb_boutique_products', state.products);
+      }
+
       const typeLabel = state.posDeliveryType === 'domicilio' ? '🛵 Domicilio' : '🏪 Mostrador';
       const payLabel = state.posPaymentStatus === 'anticipo' ? 'Anticipo' : '100% Liquidado';
 
-      if (state.activeWebOrderId) {
-        const existingIdx = state.salesHistory.findIndex(s => s && s.id === state.activeWebOrderId);
-        if (existingIdx !== -1) {
-          const folio = state.activeWebOrderId;
-          const updatedSale = {
-            ...state.salesHistory[existingIdx],
-            date: new Date().toLocaleDateString(),
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            customer: state.posCustomerName || state.salesHistory[existingIdx].customer,
-            type: `${typeLabel} (${payLabel})`,
-            method: state.posPaymentMethod.toUpperCase(),
-            bankStatus: state.posPaymentMethod === 'efectivo' ? 'En Cajón' : 'Verificado en Banco ✅',
-            status: state.posPaymentStatus === 'anticipo' ? 'Anticipo Pagado' : 'Completado',
-            merchandiseTotal: calc.merchandiseTotal,
-            shippingFee: calc.shippingFee,
-            subtotalBeforeFee: calc.subtotalBeforeFee,
-            terminalFee: calc.terminalFee5Pct,
-            total: calc.finalChargeToday,
-            pendingBalance: calc.pendingBalance,
-            cashChange: calc.cashChange,
-            deliveryAddress: state.posDeliveryAddress,
-            deliveryMapUrl: state.posDeliveryMapUrl,
-            itemsList: [...state.posCart],
-            itemsCount: state.posCart.reduce((a, b) => a + b.qty, 0)
-          };
-          state.salesHistory[existingIdx] = updatedSale;
-          saveStored('rb_boutique_sales', state.salesHistory);
-          if (state.posCustomerName && state.posCustomerName !== 'Cliente Mostrador') {
-            processReferralSuccess(state.posCustomerName);
-          }
-          state.activeWebOrderId = null;
-          state.lastReceipt = updatedSale;
-          state.posCart = [];
-          state.cashReceived = '';
-          showToast(`✅ Pedido Web ${folio} cobrado y reflejado en la cuenta del cliente`);
-          renderApp();
-          return;
+      if (existingWebOrder) {
+        const folio = existingWebOrder.id;
+        const updatedSale = {
+          ...existingWebOrder,
+          date: new Date().toLocaleDateString(),
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          customer: state.posCustomerName || existingWebOrder.customer,
+          type: `${typeLabel} (${payLabel})`,
+          method: state.posPaymentMethod.toUpperCase(),
+          bankStatus: state.posPaymentMethod === 'efectivo' ? 'En Cajón' : 'Verificado en Banco ✅',
+          status: state.posPaymentStatus === 'anticipo' ? 'Anticipo Pagado' : 'Completado',
+          stockDeducted: true,
+          merchandiseTotal: calc.merchandiseTotal,
+          shippingFee: calc.shippingFee,
+          subtotalBeforeFee: calc.subtotalBeforeFee,
+          terminalFee: calc.terminalFee5Pct,
+          total: calc.finalChargeToday,
+          pendingBalance: calc.pendingBalance,
+          cashChange: calc.cashChange,
+          deliveryAddress: state.posDeliveryAddress,
+          deliveryMapUrl: state.posDeliveryMapUrl,
+          itemsList: [...state.posCart],
+          itemsCount: state.posCart.reduce((a, b) => a + b.qty, 0)
+        };
+        state.salesHistory[existingWebIdx] = updatedSale;
+        saveStored('rb_boutique_sales', state.salesHistory);
+        if (state.posCustomerName && state.posCustomerName !== 'Cliente Mostrador') {
+          processReferralSuccess(state.posCustomerName);
         }
         state.activeWebOrderId = null;
+        state.lastReceipt = updatedSale;
+        state.posCart = [];
+        state.cashReceived = '';
+        checkLowStockAlert();
+        showToast(`✅ Venta Web ${folio} efectuada y reflejada en el perfil del cliente`);
+        renderApp();
+        return;
       }
-
-      for (const item of state.posCart) {
-        const prodInStock = state.products.find(p => p.id === item.productId);
-        const currentAvail = prodInStock && prodInStock.sizes ? Number(prodInStock.sizes[item.size] || 0) : 0;
-        if (!prodInStock || currentAvail < item.qty) {
-          showToast(`🚨 Stock agotado o insuficiente para "${item.name}" (Talla ${item.size}). Disponibles: ${currentAvail}`, 'error');
-          return;
-        }
-      }
-
-      state.products = state.products.map(p => {
-        const nextSizes = { ...p.sizes };
-        state.posCart.forEach(item => { if (item.productId === p.id && nextSizes[item.size] !== undefined) nextSizes[item.size] = Math.max(0, nextSizes[item.size] - item.qty); });
-        return { ...p, sizes: nextSizes };
-      });
-      saveStored('rb_boutique_products', state.products);
 
       const folio = `TCK-${Math.floor(1000 + Math.random() * 9000)}`;
       const saleObj = {
         id: folio, date: new Date().toLocaleDateString(), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         customer: state.posCustomerName || 'Cliente Mostrador', channel: 'POS Mostrador', type: `${typeLabel} (${payLabel})`,
         method: state.posPaymentMethod.toUpperCase(), bankStatus: state.posPaymentMethod === 'efectivo' ? 'En Cajón' : 'Pendiente Banco', status: 'Completado',
+        stockDeducted: true,
         merchandiseTotal: calc.merchandiseTotal, shippingFee: calc.shippingFee, subtotalBeforeFee: calc.subtotalBeforeFee, terminalFee: calc.terminalFee5Pct, total: calc.finalChargeToday, pendingBalance: calc.pendingBalance, cashChange: calc.cashChange, deliveryAddress: state.posDeliveryAddress, deliveryMapUrl: state.posDeliveryMapUrl, itemsList: [...state.posCart], itemsCount: state.posCart.reduce((a,b)=>a+b.qty,0)
       };
 
       state.salesHistory = [saleObj, ...state.salesHistory]; saveStored('rb_boutique_sales', state.salesHistory);
       
-      if(state.posCustomerName && state.posCustomerName !== 'Cliente Mostrador') {
-          processReferralSuccess(state.posCustomerName);
+      if (state.posCustomerName && state.posCustomerName !== 'Cliente Mostrador') {
+        processReferralSuccess(state.posCustomerName);
       }
 
       state.lastReceipt = saleObj; state.posCart = []; state.cashReceived = ''; checkLowStockAlert();
       showToast(`✅ Venta ${folio} cobrada con éxito`); renderApp();
     };
-
     function renderWelcomeAccessScreenHTML() {
       return `
         <div class="min-h-screen relative bg-black text-white flex flex-col justify-between overflow-hidden select-none">
@@ -2578,13 +2620,16 @@
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg flex flex-col">
                     <div class="flex items-center justify-between border-b border-zinc-800 pb-3.5 mb-3.5"><div><h3 class="font-black text-white text-base">📋 Historial y Corte del Día</h3><p class="text-[10px] text-zinc-400">El Corte Z filtra exclusivamente las ventas de hoy (${corteCalc.todayDateStr})</p></div><button onclick="state.showCorteModal=true; renderApp();" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow-lg">🖨️ Corte del Día (Z)</button></div>
                     <div class="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar max-h-[500px]">
-                      ${state.salesHistory.length === 0 ? '<div class="text-center py-10 text-zinc-500 text-xs font-bold">Aún no hay ventas.</div>' : state.salesHistory.map((sale, idx) => `
+                      ${state.salesHistory.filter(s => s && s.status !== 'Pendiente Entrega' && s.status !== 'Esperando 50%').length === 0 ? '<div class="text-center py-10 text-zinc-500 text-xs font-bold">Aún no hay ventas cobradas.</div>' : state.salesHistory.map((sale, idx) => {
+                        if (!sale || sale.status === 'Pendiente Entrega' || sale.status === 'Esperando 50%') return '';
+                        return `
                         <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800/90 flex flex-col gap-2.5 relative">
                           <div class="flex justify-between items-start gap-2"><div><div class="flex items-center gap-2 mb-1"><span class="font-mono font-black text-[11px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded border border-pink-500/20">${sale.id}</span><span class="text-[10px] text-zinc-500">${sale.date || ''} • ${sale.time || ''}</span></div><span class="font-bold text-white text-xs block">${sale.customer}</span><p class="text-[10px] text-zinc-400 mt-0.5"><strong class="uppercase">${sale.method}</strong></p></div><div class="text-right"><p class="font-black text-emerald-400 text-base">$${sale.total}</p><span class="inline-block mt-1 px-2 py-0.5 rounded bg-zinc-800 text-white font-bold text-[9px] uppercase">${sale.status || 'Completado'}</span></div></div>
                           <div class="flex flex-wrap gap-1.5 pt-2 border-t border-zinc-800/60"><button onclick="state.lastReceipt = state.salesHistory[${idx}]; renderApp();" class="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-bold text-[10px] text-zinc-200">🧾 Ticket</button><button onclick="requestTicketPinAuth('edit', ${idx})" class="px-2.5 py-1.5 bg-zinc-800 rounded-lg font-bold text-[10px] text-white">🔒 Modificar</button><button onclick="requestTicketPinAuth('refund', ${idx})" class="px-2.5 py-1.5 bg-rose-500/10 text-rose-400 rounded-lg font-bold text-[10px]">🔒 Devolver</button><button onclick="requestTicketPinAuth('delete', ${idx})" class="px-2.5 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg font-bold text-[10px] transition">🗑️ Eliminar</button></div>
                           ${sale.method !== 'EFECTIVO' && !String(sale.status).includes('Devuelto') ? `<div class="flex items-center justify-between gap-2 pt-2 border-t border-zinc-900 text-[10px]"><span class="font-bold text-amber-400">Banco: ${sale.bankStatus || 'Pendiente'}</span><div class="flex gap-1.5"><button onclick="state.salesHistory[${idx}].bankStatus='Verificado en Banco ✅'; state.salesHistory[${idx}].status='Pago Confirmado'; saveStored('rb_boutique_sales', state.salesHistory); processReferralSuccess('${sale.customer}'); renderApp(); showToast('✅ Pago verificado');" class="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded-lg font-bold">✅ Verificado</button></div></div>` : ''}
                         </div>
-                      `).join('')}
+                        `;
+                      }).join('')}
                     </div>
                   </div>
                 </div>
