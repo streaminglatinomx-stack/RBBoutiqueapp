@@ -3087,18 +3087,95 @@
         html += `<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print"><div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade"><div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><h3 class="font-black text-lg">Mi Carrito RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200">✕</button></div><div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">${activeUserGift ? `<div class="p-3.5 rounded-2xl bg-zinc-900 text-white border border-pink-500 flex items-center justify-between gap-2 text-xs"><div><span class="font-black text-pink-400 block">🎟️ Cupón VIP: ${activeUserGift.type==='percent'?activeUserGift.value+'% OFF':'$'+activeUserGift.value+' MXN'}</span><span class="text-[10px] text-rose-300 font-mono">⏳ Vence en: <strong class="vip-countdown-timer">${formatRemainingTime(activeUserGift.expiresAt)}</strong></span></div>${activeUserGift.savedForLater ? `<button onclick="applyVipCouponNow()" class="px-3 py-1.5 rounded-xl bg-pink-600 text-white font-black text-[10px] shrink-0">Aplicar Ahora</button>` : `<button onclick="saveVipCouponForLater()" class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-[10px] shrink-0">Guardar para después</button>`}</div>` : ''}${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu carrito está vacío.</p></div>` : `<div class="space-y-3">${state.customerCart.map(item => `<div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>`).join('')}</div><div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3"><label class="block font-black text-sm text-zinc-900">Método de Entrega</label><select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Calle, número, colonia..." value="${state.customerDeliveryAddress || (state.currentUser?state.currentUser.address:'')}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm" /><input type="url" placeholder="Link Google Maps (Opcional)" value="${state.customerDeliveryMapUrl || (state.currentUser?state.currentUser.mapsUrl:'')}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm text-sky-600" /></div>` : ''}</div>`}</div>${state.customerCart.length > 0 ? `<div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0"><div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold"><span>10% OFF VIP:</span><span>-$${calc.vipDiscount}</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount}</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío:</span><span>+$${calc.shippingFee}</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div><button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black text-white font-black text-sm shadow-xl">${calc.isHomeDelivery ? `Apartar y Enviar ($${calc.requiredAdvance50} Anticipo)` : 'Confirmar Pedido'}</button></div>` : ''}</div></div>`;
       }
       // =========================================================================
-      // ORGANIZADOR QUIRÚRGICO DE PESTAÑAS (SINCRONIZACIÓN REAL CON EL CATÁLOGO)
+      // ORGANIZADOR QUIRÚRGICO DE PESTAÑAS (VENTANA DE SECCIONES + EXPLORAR SECCIONES)
       // =========================================================================
       (() => {
-        const ALL_LABELS = ['todas', 'todos', 'todo', 'ver todo', 'ver todas', 'all', 'inicio', 'catálogo', 'catalogo'];
+        const ALL_LABELS = [
+          'todas', 'todos', 'todo', 'ver todo', 'ver todas', 'all',
+          'inicio', 'catálogo', 'catalogo', 'catalogo completo', 'catálogo completo'
+        ];
 
-        const cleanCatKey = function (str) {
+        const normalizeKey = function (str) {
           return String(str || '')
-            .replace(/\s*\(\d+\)\s*$/g, '')
-            .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
-            .replace(/^[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑüÜ]+|[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑüÜ]+$/g, '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\s*\(\d+\)\s*/g, ' ')
+            .replace(/\b\d+\s*(prendas?|articulos?|productos?|items?)\b/gi, ' ')
+            .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ')
+            .replace(/^(\d+\s*[°º.]?\s*|#\d+\s*)/, '')
+            .replace(/[^a-zA-Z0-9ñÑ\s]/g, ' ')
+            .replace(/\s+/g, ' ')
             .trim()
             .toLowerCase();
+        };
+
+        const isIgnoredWord = function (key) {
+          if (!key || key.length < 2 || key.length > 35) return true;
+          const bad = [
+            ...ALL_LABELS,
+            'eliminar', 'borrar', 'editar', 'modificar', 'cerrar', 'guardar',
+            'cancelar', 'agregar', 'nueva', 'nuevo', 'nueva prenda', 'nueva seccion',
+            'nueva categoria', 'explorar', 'explorar secciones', 'secciones',
+            'categorias', 'inventario', 'caja', 'ventas', 'ajustes', 'carrito',
+            'mi carrito', 'mis compras', 'ordenar pestanas', 'subir', 'bajar',
+            'ver', 'ir', 'abrir', 'seleccionar', 'filtrar'
+          ];
+          return bad.includes(key);
+        };
+
+        // DESCUBRIR SECCIONES DESDE EL HTML (VENTANA DE SECCIONES, EXPLORAR SECCIONES Y SELECTS)
+        window.discoverCategoriesFromRoot = function (rootEl) {
+          if (!rootEl) return;
+          const found = [];
+
+          // 1. Desde cualquier <select> de categorías en Inventario
+          rootEl.querySelectorAll('select').forEach(sel => {
+            const oc = String(sel.getAttribute('onchange') || sel.getAttribute('oninput') || '');
+            if (oc.toLowerCase().includes('cat') || oc.toLowerCase().includes('sec') || sel.options.length >= 2) {
+              Array.from(sel.options).forEach(opt => {
+                const txt = (opt.value || opt.textContent || '').trim();
+                const k = normalizeKey(txt);
+                if (!isIgnoredWord(k) && !/\$\s*\d+/.test(txt)) {
+                  found.push(txt);
+                }
+              });
+            }
+          });
+
+          // 2. Desde atributos onclick que cambian/filtran/administran secciones o categorías
+          rootEl.querySelectorAll('[onclick]').forEach(el => {
+            const oc = String(el.getAttribute('onclick') || '');
+            if (!/(cat|sec|filter|apartado)/i.test(oc)) return;
+            const matches = oc.match(/'([^']+)'|"([^"]+)"/g) || [];
+            matches.forEach(m => {
+              const rawVal = m.slice(1, -1).trim();
+              const k = normalizeKey(rawVal);
+              if (
+                !isIgnoredWord(k) &&
+                !rawVal.includes('_') &&
+                !rawVal.includes('/') &&
+                !/^(true|false|null|undefined|client|admin|transfer|oxxo|mostrador|domicilio)$/i.test(rawVal)
+              ) {
+                found.push(rawVal);
+              }
+            });
+          });
+
+          if (found.length > 0) {
+            let prev = [];
+            try { prev = JSON.parse(window.localStorage.getItem('rb_boutique_detected_tabs') || '[]'); } catch (e) {}
+            const merged = [...prev, ...found];
+            const unique = [];
+            const seen = new Set();
+            merged.forEach(item => {
+              const k = normalizeKey(item);
+              if (!isIgnoredWord(k) && !seen.has(k)) {
+                seen.add(k);
+                unique.push(String(item).trim());
+              }
+            });
+            try { window.localStorage.setItem('rb_boutique_detected_tabs', JSON.stringify(unique)); } catch (e) {}
+          }
         };
 
         window.getBoutiqueCategoryOrder = function () {
@@ -3106,9 +3183,7 @@
           if (state.storeConfig && Array.isArray(state.storeConfig.categoryOrder) && state.storeConfig.categoryOrder.length > 0) {
             saved = state.storeConfig.categoryOrder;
           }
-          if (Array.isArray(window.rbCategoryOrderMemory) && window.rbCategoryOrderMemory.length > 0) {
-            saved = window.rbCategoryOrderMemory;
-          } else if (!saved) {
+          if (!saved) {
             try {
               const local = JSON.parse(window.localStorage.getItem('rb_boutique_category_order') || '[]');
               if (Array.isArray(local) && local.length > 0) saved = local;
@@ -3126,84 +3201,193 @@
 
           const raw = [];
           if (Array.isArray(saved)) raw.push(...saved);
-          if (Array.isArray(detectedTabs)) raw.push(...detectedTabs);
-          if (Array.isArray(state.categories)) raw.push(...state.categories);
-          if (Array.isArray(state.customCategories)) raw.push(...state.customCategories);
-          if (state.storeConfig && Array.isArray(state.storeConfig.categories)) raw.push(...state.storeConfig.categories);
+
+          // Escanear todas las listas de categorías/secciones dentro de state y state.storeConfig
+          [state, state.storeConfig].forEach(obj => {
+            if (!obj || typeof obj !== 'object') return;
+            Object.keys(obj).forEach(k => {
+              if (!/(cat|sec)/i.test(k) || k === 'categoryOrder') return;
+              const val = obj[k];
+              if (Array.isArray(val)) {
+                val.forEach(item => {
+                  if (typeof item === 'string') raw.push(item);
+                  else if (item && typeof item === 'object') raw.push(item.name || item.title || item.label || item.id || '');
+                });
+              }
+            });
+          });
 
           prods.forEach(p => {
             if (!p) return;
-            const c = p.category || p.cat || p.section;
+            const c = p.category || p.cat || p.section || p.apartado;
             if (c && typeof c === 'string') raw.push(c.trim());
           });
+
+          if (Array.isArray(detectedTabs)) raw.push(...detectedTabs);
 
           const unique = [];
           const seen = new Set();
           raw.forEach(item => {
             const cleanDisplay = String(item || '').trim();
-            const key = cleanCatKey(cleanDisplay);
-            if (!key || ALL_LABELS.includes(key)) return;
+            const key = normalizeKey(cleanDisplay);
+            if (isIgnoredWord(key)) return;
             if (!seen.has(key)) {
               seen.add(key);
               unique.push(cleanDisplay);
             }
           });
 
-          window.rbCategoryOrderMemory = unique;
           return unique;
         };
 
+        // ORDENAR TODAS LAS VARIABLES DE ESTADO, PRODUCTOS Y LOCALSTORAGE
         window.applyCategoryOrderToData = function (orderedList) {
           const list = Array.isArray(orderedList) ? orderedList : window.getBoutiqueCategoryOrder();
           const orderMap = new Map();
-          list.forEach((cat, idx) => orderMap.set(cleanCatKey(cat), idx));
+          list.forEach((cat, idx) => orderMap.set(normalizeKey(cat), idx));
 
           const getRank = function (val) {
-            const k = cleanCatKey(val);
+            const rawStr = (val && typeof val === 'object') ? (val.name || val.title || val.label || val.id || '') : String(val || '');
+            const k = normalizeKey(rawStr);
             if (ALL_LABELS.includes(k)) return -1;
             if (orderMap.has(k)) return orderMap.get(k);
             for (const [mapKey, mapIdx] of orderMap.entries()) {
-              if (mapKey && (k.includes(mapKey) || mapKey.includes(k))) return mapIdx;
+              if (mapKey && (k === mapKey || k.includes(mapKey) || mapKey.includes(k))) return mapIdx;
             }
             return 9999;
           };
 
           if (Array.isArray(state.products) && state.products.length > 1) {
             state.products.sort((a, b) => {
-              const catA = (a && (a.category || a.cat || a.section)) || '';
-              const catB = (b && (b.category || b.cat || b.section)) || '';
+              const catA = (a && (a.category || a.cat || a.section || a.apartado)) || '';
+              const catB = (b && (b.category || b.cat || b.section || b.apartado)) || '';
               return getRank(catA) - getRank(catB);
             });
           }
 
-          ['categories', 'customCategories'].forEach(key => {
-            if (Array.isArray(state[key])) {
-              state[key].sort((a, b) => getRank(a) - getRank(b));
-            }
+          [state, state.storeConfig].forEach(obj => {
+            if (!obj || typeof obj !== 'object') return;
+            Object.keys(obj).forEach(k => {
+              if (!/(cat|sec)/i.test(k) || k === 'categoryOrder') return;
+              if (Array.isArray(obj[k]) && obj[k].length > 1) {
+                obj[k].sort((a, b) => getRank(a) - getRank(b));
+              }
+            });
           });
 
-          if (state.storeConfig && Array.isArray(state.storeConfig.categories)) {
-            state.storeConfig.categories.sort((a, b) => getRank(a) - getRank(b));
-          }
+          try {
+            for (let i = 0; i < window.localStorage.length; i++) {
+              const storageKey = window.localStorage.key(i);
+              if (storageKey && /(cat|sec)/i.test(storageKey) && storageKey !== 'rb_boutique_category_order') {
+                const parsed = JSON.parse(window.localStorage.getItem(storageKey) || 'null');
+                if (Array.isArray(parsed) && parsed.length > 1) {
+                  parsed.sort((a, b) => getRank(a) - getRank(b));
+                  window.localStorage.setItem(storageKey, JSON.stringify(parsed));
+                }
+              }
+            }
+          } catch (e) {}
         };
 
-        // INTERCEPTAR renderApp PARA QUE ORDENE LOS DATOS ANTES DE CONSTRUIR EL HTML DEL CATÁLOGO
-        if (!window.rbRenderAppOrderHooked && typeof window.renderApp === 'function') {
-          window.rbRenderAppOrderHooked = true;
-          const originalRenderApp = window.renderApp;
-          window.renderApp = function () {
-            try {
-              window.applyCategoryOrderToData(window.getBoutiqueCategoryOrder());
-            } catch (e) {}
-            const res = originalRenderApp.apply(this, arguments);
-            try {
-              window.syncCategoryOrganizerUI();
-            } catch (e) {}
-            return res;
-          };
-        }
+        // IDENTIFICAR A QUÉ SECCIÓN PERTENECE CADA TARJETA / FILA / BOTÓN EN VENTANA DE SECCIONES Y EXPLORAR SECCIONES
+        window.matchElementToCategoryRank = function (el, orderMap) {
+          if (!el || !el.tagName) return null;
+          const fullText = el.textContent || '';
+          if (/\$\s*\d+/.test(fullText)) return null; // No tocar tarjetas de prendas con precio
 
+          const matchedRanks = new Set();
+          let isAllBtn = false;
+
+          // 1. Revisar strings entre comillas dentro de onclick (ej. onclick="... 'Mujer' ...")
+          const onclickNodes = [el, ...Array.from(el.querySelectorAll('[onclick]'))];
+          onclickNodes.forEach(node => {
+            const oc = String(node.getAttribute && node.getAttribute('onclick') || '');
+            if (!oc) return;
+            const quoted = oc.match(/'([^']+)'|"([^"]+)"/g) || [];
+            quoted.forEach(q => {
+              const cleanQ = normalizeKey(q.slice(1, -1));
+              if (ALL_LABELS.includes(cleanQ)) isAllBtn = true;
+              if (orderMap.has(cleanQ)) matchedRanks.add(orderMap.get(cleanQ));
+            });
+          });
+
+          // 2. Revisar textos de etiquetas internas (span, h3, h4, p, strong, div, button, option)
+          const textNodes = [el, ...Array.from(el.querySelectorAll('span, h1, h2, h3, h4, h5, p, strong, b, div, button, option'))];
+          textNodes.forEach(node => {
+            if (node.children && node.children.length > 2) return;
+            const k = normalizeKey(node.textContent || '');
+            if (!k) return;
+            if (ALL_LABELS.includes(k)) isAllBtn = true;
+            if (orderMap.has(k)) matchedRanks.add(orderMap.get(k));
+          });
+
+          // 3. Si aún no coincidió exacto, buscar por palabra contenida (nombres más largos primero)
+          if (matchedRanks.size === 0) {
+            const cleanFull = normalizeKey(fullText);
+            if (ALL_LABELS.includes(cleanFull)) {
+              isAllBtn = true;
+            } else {
+              const sortedKeys = Array.from(orderMap.keys()).sort((a, b) => b.length - a.length);
+              for (const k of sortedKeys) {
+                if (k && cleanFull.includes(k)) {
+                  matchedRanks.add(orderMap.get(k));
+                  break;
+                }
+              }
+            }
+          }
+
+          if (matchedRanks.size > 1) return { type: 'multiple' }; // Es un contenedor padre, no un ítem individual
+          if (matchedRanks.size === 1) return { type: 'cat', rank: Array.from(matchedRanks)[0] };
+          if (isAllBtn) return { type: 'all', rank: -1 };
+          return null;
+        };
+
+        // REORDENAR EN MEMORIA Y EN DOM: VENTANA DE SECCIONES, EXPLORAR SECCIONES, BARRAS Y SELECTS
+        window.sortAllCategoryContainersInRoot = function (rootEl, orderedList) {
+          if (!rootEl) return;
+          const list = Array.isArray(orderedList) ? orderedList : window.getBoutiqueCategoryOrder();
+          if (list.length < 2) return;
+
+          const orderMap = new Map();
+          list.forEach((cat, idx) => orderMap.set(normalizeKey(cat), idx));
+
+          const containers = Array.from(rootEl.querySelectorAll('div, nav, section, ul, select'));
+          containers.forEach(container => {
+            if (container.closest && container.closest('#rb-category-organizer-modal')) return;
+            const children = Array.from(container.children);
+            if (children.length < 2 || children.length > 40) return;
+
+            let validCatItems = 0;
+            let hasMultipleContainerChild = false;
+            const decorated = children.map((child, origIdx) => {
+              const match = window.matchElementToCategoryRank(child, orderMap);
+              if (match && match.type === 'multiple') hasMultipleContainerChild = true;
+              if (match && match.type === 'cat') validCatItems++;
+              return {
+                el: child,
+                origIdx,
+                rank: match ? match.rank : 9999 + origIdx,
+                isMatched: Boolean(match && (match.type === 'cat' || match.type === 'all'))
+              };
+            });
+
+            if (hasMultipleContainerChild) return;
+
+            // Si al menos 2 hijos directos son secciones/categorías individuales, ordenarlos
+            if (validCatItems >= 2) {
+              const sorted = [...decorated].sort((a, b) => a.rank - b.rank);
+              const changed = sorted.some((item, idx) => item.el !== children[idx]);
+              if (changed) {
+                sorted.forEach(item => container.appendChild(item.el));
+              }
+            }
+          });
+        };
+
+        // FUNCIONES DE LA VENTANA ORGANIZADORA EN INVENTARIO
         window.openBoutiqueCategoryOrganizer = function () {
+          window.discoverCategoriesFromRoot(document.body);
           window.rbDraftCategories = [...window.getBoutiqueCategoryOrder()];
           window.rbTapSequenceMode = false;
           window.rbTapPickedList = [];
@@ -3262,7 +3446,6 @@
             finalOrder = [...window.rbTapPickedList, ...remaining];
           }
 
-          window.rbCategoryOrderMemory = [...finalOrder];
           if (!state.storeConfig) state.storeConfig = {};
           state.storeConfig.categoryOrder = [...finalOrder];
           try {
@@ -3275,9 +3458,12 @@
           saveStored('rb_boutique_products', state.products);
 
           window.closeBoutiqueCategoryOrganizer();
-          showToast('✅ Orden aplicado al Catálogo: ' + finalOrder.join(' → '));
+          showToast('✅ Orden aplicado en Ventana de Secciones y Explorar Secciones');
           renderApp();
-          setTimeout(window.syncCategoryOrganizerUI, 30);
+          setTimeout(() => {
+            window.sortAllCategoryContainersInRoot(document.body, finalOrder);
+            window.injectOrganizerButtonInInventory();
+          }, 30);
         };
 
         window.renderCategoryOrganizerModal = function () {
@@ -3307,8 +3493,8 @@
                 <div class="flex items-center gap-3">
                   <div class="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-lg font-black">📑</div>
                   <div>
-                    <h3 class="font-black text-white text-base">Organizador Visual de Pestañas</h3>
-                    <p class="text-[11px] text-zinc-400">Revisa en vivo cómo quedará tu catálogo antes de guardar</p>
+                    <h3 class="font-black text-white text-base">Organizador de Secciones</h3>
+                    <p class="text-[11px] text-zinc-400">Se aplicará en Ventana de Secciones y en Explorar Secciones</p>
                   </div>
                 </div>
                 <button type="button" onclick="closeBoutiqueCategoryOrganizer()" class="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-black flex items-center justify-center">✕</button>
@@ -3317,7 +3503,7 @@
               <div class="p-4 rounded-2xl bg-zinc-950 border border-pink-500/40 space-y-2.5">
                 <div class="flex items-center justify-between">
                   <span class="text-[10px] font-black uppercase tracking-wider text-pink-400 flex items-center gap-1.5">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Vista Previa en Tiempo Real del Catálogo
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Vista Previa en Tiempo Real (Explorar Secciones)
                   </span>
                   <span class="text-[10px] text-zinc-500 font-bold">Desliza ↔</span>
                 </div>
@@ -3337,8 +3523,8 @@
 
               <div class="flex items-center justify-between gap-2 bg-zinc-950 p-3 rounded-2xl border border-zinc-800">
                 <div class="text-xs">
-                  <p class="font-black text-white">${isTapMode ? '👆 Toca las categorías en el orden que las quieres (1°, 2°, 3°...)' : '🎯 ¿Quieres ordenarlas aún más rápido?'}</p>
-                  <p class="text-[11px] text-zinc-400">${isTapMode ? `Seleccionadas: ${picked.length} de ${baseList.length}` : 'Activa el modo rápido y solo ve tocando quién va 1°, 2°, 3°...'}</p>
+                  <p class="font-black text-white">${isTapMode ? '👆 Toca las secciones en el orden que las quieres (1°, 2°, 3°...)' : '🎯 ¿Quieres ordenarlas tocando una por una?'}</p>
+                  <p class="text-[11px] text-zinc-400">${isTapMode ? `Seleccionadas: ${picked.length} de ${baseList.length}` : 'Activa este botón y toca quién va 1°, 2°, 3°...'}</p>
                 </div>
                 <button type="button" onclick="${isTapMode ? 'window.rbTapSequenceMode=false; window.renderCategoryOrganizerModal();' : 'startTapToOrderMode()'}" class="px-3.5 py-2 rounded-xl font-black text-xs shrink-0 transition ${isTapMode ? 'bg-zinc-800 text-zinc-300' : 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg'}">
                   ${isTapMode ? 'Cancelar Modo Toque' : '🎯 Tocar en Orden 1°, 2°, 3°'}
@@ -3362,7 +3548,7 @@
                 </div>
               ` : `
                 <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
-                  <p class="text-[11px] text-zinc-400 font-bold">O elige directamente el número de posición para cualquier categoría:</p>
+                  <p class="text-[11px] text-zinc-400 font-bold">Toca el número de posición al que quieras mandar cada sección:</p>
                   ${previewList.map((catName, idx) => `
                     <div class="p-3 rounded-2xl bg-zinc-950 border ${window.rbHighlightedCat === catName ? 'border-pink-500 bg-pink-950/20' : 'border-zinc-800'} flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div class="flex items-center gap-2.5">
@@ -3389,63 +3575,14 @@
                   Cancelar
                 </button>
                 <button type="button" onclick="commitCategoryOrderToStore()" class="w-2/3 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-xl transition">
-                  💾 Guardar y Aplicar al Catálogo
+                  💾 Guardar y Aplicar Ahora
                 </button>
               </div>
             </div>
           `;
         };
 
-        window.syncCategoryOrganizerUI = function () {
-          const orderedCats = window.getBoutiqueCategoryOrder();
-          const orderLookup = new Map();
-          orderedCats.forEach((c, i) => orderLookup.set(cleanCatKey(c), i));
-
-          const getElementRank = function (el) {
-            const key = cleanCatKey(el.innerText || el.textContent || '');
-            if (ALL_LABELS.includes(key)) return -1;
-            if (orderLookup.has(key)) return orderLookup.get(key);
-            for (const [k, v] of orderLookup.entries()) {
-              if (k && (key.includes(k) || k.includes(key))) return v;
-            }
-            return 9999;
-          };
-
-          // 1. DETECTAR Y ORDENAR CUALQUIER BARRA DE PESTAÑAS DE CATEGORÍAS EN EL CATÁLOGO
-          const containers = Array.from(document.querySelectorAll('div, nav, section'));
-          containers.forEach(container => {
-            if (container.closest('#rb-category-organizer-modal')) return;
-            const children = Array.from(container.children).filter(
-              el => el.tagName === 'BUTTON' || el.hasAttribute('onclick')
-            );
-            if (children.length < 2) return;
-
-            let matches = 0;
-            children.forEach(ch => {
-              const key = cleanCatKey(ch.innerText || ch.textContent || '');
-              if (!key) return;
-              if (ALL_LABELS.includes(key) || orderLookup.has(key)) {
-                matches++;
-              } else {
-                for (const k of orderLookup.keys()) {
-                  if (k && (key.includes(k) || k.includes(key))) {
-                    matches++;
-                    break;
-                  }
-                }
-              }
-            });
-
-            if (matches >= 2 && matches >= Math.ceil(children.length * 0.5)) {
-              const sorted = [...children].sort((a, b) => getElementRank(a) - getElementRank(b));
-              const changed = children.some((el, idx) => el !== sorted[idx]);
-              if (changed) {
-                sorted.forEach(el => container.appendChild(el));
-              }
-            }
-          });
-
-          // 2. COLOCAR EL BOTÓN A UN LADO DE CATEGORÍA Y NUEVA PRENDA
+        window.injectOrganizerButtonInInventory = function () {
           if (document.getElementById('rb-open-organizer-btn')) return;
 
           const isInsideModificarPrenda = function (el) {
@@ -3464,7 +3601,7 @@
           const candidateBtns = allButtons.filter(b => {
             if (isInsideModificarPrenda(b)) return false;
             const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-            return txt.includes('nueva prenda') || txt.includes('agregar prenda') || txt.includes('nueva categoría') || txt.includes('nueva categoria') || txt.includes('+ categoría') || txt.includes('+ categoria');
+            return txt.includes('nueva prenda') || txt.includes('agregar prenda') || txt.includes('secciones') || txt.includes('categoría') || txt.includes('categoria');
           });
 
           if (candidateBtns.length > 0) {
@@ -3502,11 +3639,34 @@
           }
         };
 
-        window.applyCategoryOrderToData(window.getBoutiqueCategoryOrder());
-        setTimeout(window.syncCategoryOrganizerUI, 20);
+        // 1. ORDENAR ARRAYS DE ESTADO
+        const currentOrder = window.getBoutiqueCategoryOrder();
+        window.applyCategoryOrderToData(currentOrder);
+
+        // 2. INTERCEPTAR Y REORDENAR LA VARIABLE `html` ANTES DE PINTARSE EN PANTALLA
+        if (typeof html === 'string' && html.length > 0) {
+          try {
+            const tempRoot = document.createElement('div');
+            tempRoot.innerHTML = html;
+            window.discoverCategoriesFromRoot(tempRoot);
+            window.sortAllCategoryContainersInRoot(tempRoot, window.getBoutiqueCategoryOrder());
+            html = tempRoot.innerHTML;
+          } catch (e) {}
+        }
+
+        // 3. SINCRONIZAR TAMBIÉN EL DOM EN VIVO (PARA VENTANAS FLOTANTES Y CAMBIOS DE VISTA)
+        setTimeout(() => {
+          window.discoverCategoriesFromRoot(document.body);
+          window.sortAllCategoryContainersInRoot(document.body, window.getBoutiqueCategoryOrder());
+          window.injectOrganizerButtonInInventory();
+        }, 20);
+
         if (!window.rbOrganizerWatcherStarted) {
           window.rbOrganizerWatcherStarted = true;
-          setInterval(window.syncCategoryOrganizerUI, 300);
+          setInterval(() => {
+            window.sortAllCategoryContainersInRoot(document.body, window.getBoutiqueCategoryOrder());
+            window.injectOrganizerButtonInInventory();
+          }, 300);
         }
       })();
       
