@@ -3086,6 +3086,236 @@
         const activeUserGift = state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.used && !isGiftExpired(state.currentUser.vipGift) ? state.currentUser.vipGift : null;
         html += `<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print"><div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade"><div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><h3 class="font-black text-lg">Mi Carrito RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200">✕</button></div><div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">${activeUserGift ? `<div class="p-3.5 rounded-2xl bg-zinc-900 text-white border border-pink-500 flex items-center justify-between gap-2 text-xs"><div><span class="font-black text-pink-400 block">🎟️ Cupón VIP: ${activeUserGift.type==='percent'?activeUserGift.value+'% OFF':'$'+activeUserGift.value+' MXN'}</span><span class="text-[10px] text-rose-300 font-mono">⏳ Vence en: <strong class="vip-countdown-timer">${formatRemainingTime(activeUserGift.expiresAt)}</strong></span></div>${activeUserGift.savedForLater ? `<button onclick="applyVipCouponNow()" class="px-3 py-1.5 rounded-xl bg-pink-600 text-white font-black text-[10px] shrink-0">Aplicar Ahora</button>` : `<button onclick="saveVipCouponForLater()" class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-[10px] shrink-0">Guardar para después</button>`}</div>` : ''}${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu carrito está vacío.</p></div>` : `<div class="space-y-3">${state.customerCart.map(item => `<div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>`).join('')}</div><div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3"><label class="block font-black text-sm text-zinc-900">Método de Entrega</label><select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Calle, número, colonia..." value="${state.customerDeliveryAddress || (state.currentUser?state.currentUser.address:'')}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm" /><input type="url" placeholder="Link Google Maps (Opcional)" value="${state.customerDeliveryMapUrl || (state.currentUser?state.currentUser.mapsUrl:'')}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm text-sky-600" /></div>` : ''}</div>`}</div>${state.customerCart.length > 0 ? `<div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0"><div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold"><span>10% OFF VIP:</span><span>-$${calc.vipDiscount}</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount}</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío:</span><span>+$${calc.shippingFee}</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div><button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black text-white font-black text-sm shadow-xl">${calc.isHomeDelivery ? `Apartar y Enviar ($${calc.requiredAdvance50} Anticipo)` : 'Confirmar Pedido'}</button></div>` : ''}</div></div>`;
       }
+      // =========================================================================
+      // ORGANIZADOR QUIRÚRGICO DE PESTAÑAS (EXCLUSIVO EN SECCIÓN INVENTARIO)
+      // =========================================================================
+      (() => {
+        const ALL_LABELS = ['todas', 'todos', 'todo', 'ver todo', 'all', 'inicio', 'catálogo', 'catalogo'];
+
+        window.getBoutiqueCategoryOrder = function () {
+          let saved = null;
+          if (Array.isArray(window.rbCategoryOrderMemory) && window.rbCategoryOrderMemory.length > 0) {
+            saved = window.rbCategoryOrderMemory;
+          } else if (state.storeConfig && Array.isArray(state.storeConfig.categoryOrder) && state.storeConfig.categoryOrder.length > 0) {
+            saved = state.storeConfig.categoryOrder;
+          } else {
+            try {
+              const local = JSON.parse(window.localStorage.getItem('rb_boutique_category_order') || '[]');
+              if (Array.isArray(local) && local.length > 0) saved = local;
+            } catch (e) {}
+          }
+
+          const prods = typeof normalizeFirebaseList === 'function'
+            ? normalizeFirebaseList(state.products)
+            : (Array.isArray(state.products) ? state.products : Object.values(state.products || {}));
+
+          const raw = [];
+          if (Array.isArray(saved)) raw.push(...saved);
+          if (Array.isArray(state.categories)) raw.push(...state.categories);
+          if (Array.isArray(state.customCategories)) raw.push(...state.customCategories);
+          if (state.storeConfig && Array.isArray(state.storeConfig.categories)) raw.push(...state.storeConfig.categories);
+
+          prods.forEach(p => {
+            if (!p) return;
+            const c = p.category || p.cat || p.section;
+            if (c && typeof c === 'string') raw.push(c.trim());
+          });
+
+          const unique = [];
+          const seen = new Set();
+          raw.forEach(item => {
+            const clean = String(item || '').trim();
+            if (!clean) return;
+            const lower = clean.toLowerCase();
+            if (ALL_LABELS.includes(lower)) return;
+            if (!seen.has(lower)) {
+              seen.add(lower);
+              unique.push(clean);
+            }
+          });
+
+          window.rbCategoryOrderMemory = unique;
+          return unique;
+        };
+
+        window.applyCategoryOrderToData = function (orderedList) {
+          const orderMap = new Map();
+          orderedList.forEach((cat, idx) => orderMap.set(String(cat).trim().toLowerCase(), idx));
+
+          if (Array.isArray(state.products) && state.products.length > 1) {
+            state.products.sort((a, b) => {
+              const catA = String((a && (a.category || a.cat || a.section)) || '').trim().toLowerCase();
+              const catB = String((b && (b.category || b.cat || b.section)) || '').trim().toLowerCase();
+              const rankA = orderMap.has(catA) ? orderMap.get(catA) : 9999;
+              const rankB = orderMap.has(catB) ? orderMap.get(catB) : 9999;
+              return rankA - rankB;
+            });
+          }
+
+          ['categories', 'customCategories'].forEach(key => {
+            if (Array.isArray(state[key])) {
+              state[key].sort((a, b) => {
+                const cA = String(a || '').trim().toLowerCase();
+                const cB = String(b || '').trim().toLowerCase();
+                if (ALL_LABELS.includes(cA)) return -1;
+                if (ALL_LABELS.includes(cB)) return 1;
+                const rA = orderMap.has(cA) ? orderMap.get(cA) : 9999;
+                const rB = orderMap.has(cB) ? orderMap.get(cB) : 9999;
+                return rA - rB;
+              });
+            }
+          });
+        };
+
+        window.moveBoutiqueCategory = function (index, direction) {
+          const list = [...window.getBoutiqueCategoryOrder()];
+          const targetIndex = index + direction;
+          if (targetIndex < 0 || targetIndex >= list.length) return;
+
+          const movedName = list[index];
+          list[index] = list[targetIndex];
+          list[targetIndex] = movedName;
+
+          window.rbCategoryOrderMemory = list;
+          window.rbLastMovedCategory = movedName;
+          if (!state.storeConfig) state.storeConfig = {};
+          state.storeConfig.categoryOrder = list;
+          try { window.localStorage.setItem('rb_boutique_category_order', JSON.stringify(list)); } catch (e) {}
+
+          window.applyCategoryOrderToData(list);
+          saveStored('rb_boutique_config', state.storeConfig);
+          saveStored('rb_boutique_products', state.products);
+          renderApp();
+        };
+
+        window.toggleBoutiqueCategoryOrganizer = function () {
+          state.showCategoryOrganizer = !state.showCategoryOrganizer;
+          renderApp();
+        };
+
+        window.renderInventoryCategoryOrganizer = function () {
+          const orderedCats = window.getBoutiqueCategoryOrder();
+          const orderLookup = new Map();
+          orderedCats.forEach((c, i) => orderLookup.set(c.toLowerCase(), i));
+
+          // 1. SI EL CLIENTE ESTÁ EN EL CATÁLOGO, ACOMODAR LAS PESTAÑAS SEGÚN EL ORDEN GUARDADO
+          const allButtons = Array.from(document.querySelectorAll('button'));
+          const catButtons = allButtons.filter(btn => {
+            const oc = String(btn.getAttribute('onclick') || '');
+            return oc.includes('Category') || oc.includes('category') || oc.includes('catFilter') || oc.includes('selectedCat') || oc.includes('activeCat');
+          });
+
+          if (catButtons.length > 1 && catButtons[0].parentElement) {
+            const catBar = catButtons[0].parentElement;
+            const siblingBtns = Array.from(catBar.querySelectorAll(':scope > button'));
+            siblingBtns.sort((btnA, btnB) => {
+              const txtA = (btnA.innerText || btnA.textContent || '').trim().toLowerCase();
+              const txtB = (btnB.innerText || btnB.textContent || '').trim().toLowerCase();
+              if (ALL_LABELS.includes(txtA)) return -1;
+              if (ALL_LABELS.includes(txtB)) return 1;
+              let rankA = orderLookup.has(txtA) ? orderLookup.get(txtA) : 9999;
+              let rankB = orderLookup.has(txtB) ? orderLookup.get(txtB) : 9999;
+              if (rankA === 9999) {
+                for (const [k, v] of orderLookup.entries()) {
+                  if (txtA.includes(k)) { rankA = v; break; }
+                }
+              }
+              if (rankB === 9999) {
+                for (const [k, v] of orderLookup.entries()) {
+                  if (txtB.includes(k)) { rankB = v; break; }
+                }
+              }
+              return rankA - rankB;
+            });
+            siblingBtns.forEach(btn => catBar.appendChild(btn));
+          }
+
+          // 2. CANDADO ESTRICTO: SOLO SE MUESTRA SI ESTÁS EN "📦 INVENTARIO"
+          const oldBox = document.getElementById('rb-category-organizer-box');
+          if (oldBox) oldBox.remove();
+
+          const onlyInInventoryInput = document.querySelector('input[onchange*="uploadProductImage"]');
+          if (!onlyInInventoryInput) return;
+
+          const invCard = onlyInInventoryInput.closest('.bg-zinc-900') || onlyInInventoryInput.parentElement;
+          const outerGrid = (invCard && invCard.parentElement && String(invCard.parentElement.className || '').includes('grid'))
+            ? invCard.parentElement
+            : invCard;
+
+          if (!outerGrid || !outerGrid.parentElement) return;
+
+          const isOpen = Boolean(state.showCategoryOrganizer);
+          const organizerEl = document.createElement('div');
+          organizerEl.id = 'rb-category-organizer-box';
+          organizerEl.className = 'bg-zinc-900 border border-pink-500/40 rounded-3xl p-5 space-y-4 shadow-xl mb-6';
+
+          organizerEl.innerHTML = `
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-lg font-black">📑</div>
+                <div>
+                  <h3 class="font-black text-white text-sm sm:text-base">Orden de Pestañas en el Catálogo</h3>
+                  <p class="text-[11px] text-zinc-400">Así aparecen de izquierda a derecha en tu tienda</p>
+                </div>
+              </div>
+              <button type="button" onclick="toggleBoutiqueCategoryOrganizer()" class="px-4 py-2.5 rounded-xl ${isOpen ? 'bg-zinc-800 text-white border border-zinc-700' : 'bg-pink-600 hover:bg-pink-500 text-white'} font-black text-xs transition shadow-md">
+                ${isOpen ? 'Cerrar ▴' : '⚙️ Ordenar Pestañas ▾'}
+              </button>
+            </div>
+
+            <!-- VISTA PREVIA HORIZONTAL DE CÓMO SE VEN LAS PESTAÑAS EN EL CATÁLOGO -->
+            <div class="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
+              <span class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-400 font-black text-[11px] shrink-0">Todas</span>
+              ${orderedCats.map((catName, idx) => `
+                <span class="px-3 py-1.5 rounded-xl ${window.rbLastMovedCategory === catName ? 'bg-pink-600 text-white ring-2 ring-pink-400' : 'bg-zinc-950 border border-zinc-800 text-zinc-200'} font-black text-[11px] shrink-0">
+                  ${idx + 1}. ${catName}
+                </span>
+              `).join('')}
+            </div>
+
+            ${isOpen ? `
+              <div class="pt-3 border-t border-zinc-800 space-y-2.5">
+                <p class="text-xs text-zinc-400">Toca <strong>⬆️ Subir</strong> para acercar una categoría al primer lugar o <strong>⬇️ Bajar</strong> para mandarla hacia el final:</p>
+                ${orderedCats.length === 0 ? `
+                  <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 text-center text-xs text-zinc-500 font-bold">
+                    Aún no hay categorías registradas en tu inventario.
+                  </div>
+                ` : `
+                  <!-- LISTA VERTICAL DE 1 SOLA COLUMNA (DE ARRIBA HACIA ABAJO) -->
+                  <div class="flex flex-col space-y-2 max-w-xl">
+                    ${orderedCats.map((catName, idx) => {
+                      const isHighlighted = window.rbLastMovedCategory === catName;
+                      return `
+                        <div class="p-3 rounded-2xl bg-zinc-950 border ${isHighlighted ? 'border-pink-500 bg-pink-950/20' : 'border-zinc-800'} flex items-center justify-between gap-3 text-xs transition">
+                          <div class="flex items-center gap-3">
+                            <span class="px-2.5 py-1 rounded-lg ${idx === 0 ? 'bg-pink-600 text-white' : 'bg-zinc-800 text-zinc-300'} font-black text-[11px]">
+                              Lugar ${idx + 1}°
+                            </span>
+                            <span class="font-black text-white text-sm">${catName}</span>
+                          </div>
+                          <div class="flex items-center gap-2 shrink-0">
+                            <button type="button" ${idx === 0 ? 'disabled' : ''} onclick="moveBoutiqueCategory(${idx}, -1)" class="px-3 py-2 rounded-xl font-black text-xs transition ${idx === 0 ? 'bg-zinc-900 text-zinc-700 cursor-not-allowed' : 'bg-zinc-800 hover:bg-pink-600 text-white shadow'}">
+                              ⬆️ Subir
+                            </button>
+                            <button type="button" ${idx === orderedCats.length - 1 ? 'disabled' : ''} onclick="moveBoutiqueCategory(${idx}, 1)" class="px-3 py-2 rounded-xl font-black text-xs transition ${idx === orderedCats.length - 1 ? 'bg-zinc-900 text-zinc-700 cursor-not-allowed' : 'bg-zinc-800 hover:bg-pink-600 text-white shadow'}">
+                              ⬇️ Bajar
+                            </button>
+                          </div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                `}
+              </div>
+            ` : ''}
+          `;
+
+          outerGrid.parentElement.insertBefore(organizerEl, outerGrid);
+        };
+
+        window.applyCategoryOrderToData(window.getBoutiqueCategoryOrder());
+        setTimeout(window.renderInventoryCategoryOrganizer, 0);
+      })();
 
       // CAMBIAR TEXTO DEL BOTÓN DEL CARRITO A "REALIZAR PEDIDO" Y GUARDAR FOLIO ACTIVO
       html = html.replace(/(onclick="handleCustomerCheckout\(\)"[^>]*>)([\s\S]*?)(<\/button>)/, '$1🛍️ Realizar Pedido$3');
