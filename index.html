@@ -3087,7 +3087,7 @@
         html += `<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print"><div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade"><div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><h3 class="font-black text-lg">Mi Carrito RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200">✕</button></div><div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">${activeUserGift ? `<div class="p-3.5 rounded-2xl bg-zinc-900 text-white border border-pink-500 flex items-center justify-between gap-2 text-xs"><div><span class="font-black text-pink-400 block">🎟️ Cupón VIP: ${activeUserGift.type==='percent'?activeUserGift.value+'% OFF':'$'+activeUserGift.value+' MXN'}</span><span class="text-[10px] text-rose-300 font-mono">⏳ Vence en: <strong class="vip-countdown-timer">${formatRemainingTime(activeUserGift.expiresAt)}</strong></span></div>${activeUserGift.savedForLater ? `<button onclick="applyVipCouponNow()" class="px-3 py-1.5 rounded-xl bg-pink-600 text-white font-black text-[10px] shrink-0">Aplicar Ahora</button>` : `<button onclick="saveVipCouponForLater()" class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-[10px] shrink-0">Guardar para después</button>`}</div>` : ''}${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu carrito está vacío.</p></div>` : `<div class="space-y-3">${state.customerCart.map(item => `<div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>`).join('')}</div><div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3"><label class="block font-black text-sm text-zinc-900">Método de Entrega</label><select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Calle, número, colonia..." value="${state.customerDeliveryAddress || (state.currentUser?state.currentUser.address:'')}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm" /><input type="url" placeholder="Link Google Maps (Opcional)" value="${state.customerDeliveryMapUrl || (state.currentUser?state.currentUser.mapsUrl:'')}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm text-sky-600" /></div>` : ''}</div>`}</div>${state.customerCart.length > 0 ? `<div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0"><div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold"><span>10% OFF VIP:</span><span>-$${calc.vipDiscount}</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount}</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío:</span><span>+$${calc.shippingFee}</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div><button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black text-white font-black text-sm shadow-xl">${calc.isHomeDelivery ? `Apartar y Enviar ($${calc.requiredAdvance50} Anticipo)` : 'Confirmar Pedido'}</button></div>` : ''}</div></div>`;
       }
       // =========================================================================
-      // ORGANIZADOR QUIRÚRGICO DE PESTAÑAS (EXCLUSIVO EN SECCIÓN INVENTARIO)
+      // ORGANIZADOR QUIRÚRGICO DE PESTAÑAS (A UN LADO DE CATEGORÍA Y NUEVA PRENDA)
       // =========================================================================
       (() => {
         const ALL_LABELS = ['todas', 'todos', 'todo', 'ver todo', 'all', 'inicio', 'catálogo', 'catalogo'];
@@ -3158,69 +3158,81 @@
           }
         };
 
-        window.buildOrganizerInnerHTML = function () {
+        window.renderCategoryOrganizerModal = function () {
+          let modal = document.getElementById('rb-category-organizer-modal');
+          if (!state.showCategoryOrganizer) {
+            if (modal) modal.remove();
+            return;
+          }
+
           const orderedCats = window.getBoutiqueCategoryOrder();
-          const isOpen = state.showCategoryOrganizer !== undefined ? Boolean(state.showCategoryOrganizer) : true;
+          if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'rb-category-organizer-modal';
+            modal.className = 'fixed inset-0 z-[95] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 no-print';
+            document.body.appendChild(modal);
+          }
 
-          return `
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-lg font-black">📑</div>
-                <div>
-                  <h3 class="font-black text-white text-sm sm:text-base">Orden de Pestañas en el Catálogo</h3>
-                  <p class="text-[11px] text-zinc-400">Así se muestran de izquierda a derecha en tu catálogo</p>
+          modal.innerHTML = `
+            <div class="bg-zinc-900 border-2 border-pink-500/50 rounded-3xl max-w-lg w-full p-6 space-y-4 text-white shadow-2xl animate-fade">
+              <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-lg font-black">📑</div>
+                  <div>
+                    <h3 class="font-black text-white text-base">Ordenar Pestañas del Catálogo</h3>
+                    <p class="text-[11px] text-zinc-400">Acomoda el orden de izquierda a derecha</p>
+                  </div>
                 </div>
+                <button type="button" onclick="toggleBoutiqueCategoryOrganizer(false)" class="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-black flex items-center justify-center">✕</button>
               </div>
-              <button type="button" onclick="toggleBoutiqueCategoryOrganizer()" class="px-4 py-2.5 rounded-xl ${isOpen ? 'bg-zinc-800 text-white border border-zinc-700' : 'bg-pink-600 hover:bg-pink-500 text-white'} font-black text-xs transition shadow-md">
-                ${isOpen ? 'Ocultar ▴' : '⚙️ Ordenar Pestañas ▾'}
-              </button>
-            </div>
 
-            <!-- VISTA PREVIA DE LAS PESTAÑAS -->
-            <div class="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
-              <span class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-400 font-black text-[11px] shrink-0">Todas</span>
-              ${orderedCats.map((catName, idx) => `
-                <span class="px-3 py-1.5 rounded-xl ${window.rbLastMovedCategory === catName ? 'bg-pink-600 text-white ring-2 ring-pink-400' : 'bg-zinc-950 border border-zinc-800 text-zinc-200'} font-black text-[11px] shrink-0">
-                  ${idx + 1}°. ${catName}
-                </span>
-              `).join('')}
-            </div>
+              <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+                <span class="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-400 font-black text-[10px] shrink-0">Todas</span>
+                ${orderedCats.map((catName, idx) => `
+                  <span class="px-2.5 py-1 rounded-lg ${window.rbLastMovedCategory === catName ? 'bg-pink-600 text-white' : 'bg-zinc-950 border border-zinc-800 text-zinc-300'} font-black text-[10px] shrink-0">
+                    ${idx + 1}°. ${catName}
+                  </span>
+                `).join('')}
+              </div>
 
-            ${isOpen ? `
-              <div class="pt-3 border-t border-zinc-800 space-y-2.5">
-                <p class="text-xs text-zinc-400">Usa <strong>⬆️ Subir</strong> para acercar una pestaña al 1° lugar o <strong>⬇️ Bajar</strong> para enviarla hacia el final:</p>
+              <div class="space-y-2 max-h-80 overflow-y-auto pr-1">
                 ${orderedCats.length === 0 ? `
                   <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 text-center text-xs text-zinc-500 font-bold">
-                    Aún no hay categorías registradas en tu inventario.
+                    No hay categorías registradas todavía.
                   </div>
-                ` : `
-                  <div class="flex flex-col space-y-2 max-w-xl">
-                    ${orderedCats.map((catName, idx) => {
-                      const isHighlighted = window.rbLastMovedCategory === catName;
-                      return `
-                        <div class="p-3 rounded-2xl bg-zinc-950 border ${isHighlighted ? 'border-pink-500 bg-pink-950/30' : 'border-zinc-800'} flex items-center justify-between gap-3 text-xs">
-                          <div class="flex items-center gap-3">
-                            <span class="px-2.5 py-1 rounded-lg ${idx === 0 ? 'bg-pink-600 text-white' : 'bg-zinc-800 text-zinc-300'} font-black text-[11px]">
-                              ${idx + 1}° Lugar
-                            </span>
-                            <span class="font-black text-white text-sm">${catName}</span>
-                          </div>
-                          <div class="flex items-center gap-2 shrink-0">
-                            <button type="button" ${idx === 0 ? 'disabled' : ''} onclick="moveBoutiqueCategory(${idx}, -1)" class="px-3 py-2 rounded-xl font-black text-xs transition ${idx === 0 ? 'bg-zinc-900 text-zinc-700 cursor-not-allowed' : 'bg-zinc-800 hover:bg-pink-600 text-white shadow'}">
-                              ⬆️ Subir
-                            </button>
-                            <button type="button" ${idx === orderedCats.length - 1 ? 'disabled' : ''} onclick="moveBoutiqueCategory(${idx}, 1)" class="px-3 py-2 rounded-xl font-black text-xs transition ${idx === orderedCats.length - 1 ? 'bg-zinc-900 text-zinc-700 cursor-not-allowed' : 'bg-zinc-800 hover:bg-pink-600 text-white shadow'}">
-                              ⬇️ Bajar
-                            </button>
-                          </div>
-                        </div>
-                      `;
-                    }).join('')}
-                  </div>
-                `}
+                ` : orderedCats.map((catName, idx) => {
+                  const isHighlighted = window.rbLastMovedCategory === catName;
+                  return `
+                    <div class="p-3 rounded-2xl bg-zinc-950 border ${isHighlighted ? 'border-pink-500 bg-pink-950/30' : 'border-zinc-800'} flex items-center justify-between gap-3 text-xs">
+                      <div class="flex items-center gap-3">
+                        <span class="px-2.5 py-1 rounded-lg ${idx === 0 ? 'bg-pink-600 text-white' : 'bg-zinc-800 text-zinc-300'} font-black text-[11px]">
+                          ${idx + 1}° Lugar
+                        </span>
+                        <span class="font-black text-white text-sm">${catName}</span>
+                      </div>
+                      <div class="flex items-center gap-1.5 shrink-0">
+                        <button type="button" ${idx === 0 ? 'disabled' : ''} onclick="moveBoutiqueCategory(${idx}, -1)" class="px-3 py-2 rounded-xl font-black text-xs transition ${idx === 0 ? 'bg-zinc-900 text-zinc-700 cursor-not-allowed' : 'bg-zinc-800 hover:bg-pink-600 text-white'}">
+                          ⬆️ Subir
+                        </button>
+                        <button type="button" ${idx === orderedCats.length - 1 ? 'disabled' : ''} onclick="moveBoutiqueCategory(${idx}, 1)" class="px-3 py-2 rounded-xl font-black text-xs transition ${idx === orderedCats.length - 1 ? 'bg-zinc-900 text-zinc-700 cursor-not-allowed' : 'bg-zinc-800 hover:bg-pink-600 text-white'}">
+                          ⬇️ Bajar
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
               </div>
-            ` : ''}
+
+              <button type="button" onclick="toggleBoutiqueCategoryOrganizer(false)" class="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg transition">
+                ✓ Guardar y Cerrar
+              </button>
+            </div>
           `;
+        };
+
+        window.toggleBoutiqueCategoryOrganizer = function (forceState) {
+          state.showCategoryOrganizer = typeof forceState === 'boolean' ? forceState : !state.showCategoryOrganizer;
+          window.renderCategoryOrganizerModal();
         };
 
         window.moveBoutiqueCategory = function (index, direction) {
@@ -3240,29 +3252,18 @@
 
           window.applyCategoryOrderToData(list);
           saveStored('rb_boutique_config', state.storeConfig);
-
-          const existingBox = document.getElementById('rb-category-organizer-box');
-          if (existingBox) {
-            existingBox.innerHTML = window.buildOrganizerInnerHTML();
-          }
-          showToast('✅ ' + movedName + ' movido al ' + (targetIndex + 1) + '° lugar');
-        };
-
-        window.toggleBoutiqueCategoryOrganizer = function () {
-          const current = state.showCategoryOrganizer !== undefined ? Boolean(state.showCategoryOrganizer) : true;
-          state.showCategoryOrganizer = !current;
-          const existingBox = document.getElementById('rb-category-organizer-box');
-          if (existingBox) {
-            existingBox.innerHTML = window.buildOrganizerInnerHTML();
-          }
+          window.renderCategoryOrganizerModal();
         };
 
         window.syncCategoryOrganizerUI = function () {
+          const oldWrongBox = document.getElementById('rb-category-organizer-box');
+          if (oldWrongBox) oldWrongBox.remove();
+
           const orderedCats = window.getBoutiqueCategoryOrder();
           const orderLookup = new Map();
           orderedCats.forEach((c, i) => orderLookup.set(c.toLowerCase(), i));
 
-          // 1. ORDENAR LAS PESTAÑAS EN EL CATÁLOGO DEL CLIENTE
+          // 1. ORDENAR LAS PESTAÑAS EN EL CATÁLOGO
           const allButtons = Array.from(document.querySelectorAll('button'));
           const catButtons = allButtons.filter(btn => {
             const oc = String(btn.getAttribute('onclick') || '');
@@ -3272,15 +3273,6 @@
           if (catButtons.length > 1 && catButtons[0].parentElement) {
             const catBar = catButtons[0].parentElement;
             const siblingBtns = Array.from(catBar.querySelectorAll(':scope > button'));
-            const detected = [];
-            siblingBtns.forEach(b => {
-              const txt = (b.innerText || b.textContent || '').trim();
-              if (txt && !ALL_LABELS.includes(txt.toLowerCase()) && txt.length < 35) detected.push(txt);
-            });
-            if (detected.length > 0 && (!window.rbCategoryOrderMemory || window.rbCategoryOrderMemory.length === 0)) {
-              try { window.localStorage.setItem('rb_boutique_detected_tabs', JSON.stringify(detected)); } catch (e) {}
-            }
-
             siblingBtns.sort((btnA, btnB) => {
               const txtA = (btnA.innerText || btnA.textContent || '').trim().toLowerCase();
               const txtB = (btnB.innerText || btnB.textContent || '').trim().toLowerCase();
@@ -3303,34 +3295,56 @@
             siblingBtns.forEach(btn => catBar.appendChild(btn));
           }
 
-          // 2. BLOQUEO ESTRICTO: SI ESTÁS EN "CAJA Y VENTAS" O "AJUSTES", NO MOSTRAR NADA
-          const bodyText = document.body ? (document.body.innerText || '') : '';
-          if (bodyText.includes('Ticket de Cobro en Caja') || bodyText.includes('Guardar Ajustes y Seguridad')) {
-            const wrongBox = document.getElementById('rb-category-organizer-box');
-            if (wrongBox) wrongBox.remove();
-            return;
+          // 2. COLOCAR EL BOTÓN EXACTAMENTE A UN LADO DE "CATEGORÍA" Y "NUEVA PRENDA"
+          if (document.getElementById('rb-open-organizer-btn')) return;
+
+          const isInsideModificarPrenda = function (el) {
+            let cur = el;
+            while (cur && cur !== document.body) {
+              const heading = cur.querySelector && cur.querySelector('h1, h2, h3, h4');
+              const hText = heading ? (heading.innerText || heading.textContent || '').toLowerCase() : '';
+              if (hText.includes('modificar prenda') || hText.includes('editar prenda')) return true;
+              cur = cur.parentElement;
+            }
+            return false;
+          };
+
+          // Buscar el botón o título de "Nueva Prenda" o "Categoría" (fuera de Modificar Prenda)
+          let targetSideElement = null;
+
+          const candidateBtns = allButtons.filter(b => {
+            if (isInsideModificarPrenda(b)) return false;
+            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+            return txt.includes('nueva prenda') || txt.includes('agregar prenda') || txt.includes('nueva categoría') || txt.includes('nueva categoria') || txt.includes('+ categoría') || txt.includes('+ categoria');
+          });
+
+          if (candidateBtns.length > 0) {
+            targetSideElement = candidateBtns[candidateBtns.length - 1];
+          } else {
+            const labelsAndHeaders = Array.from(document.querySelectorAll('h2, h3, h4, label, select')).filter(el => {
+              if (isInsideModificarPrenda(el)) return false;
+              const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+              return txt.includes('nueva prenda') || txt === 'categoría' || txt === 'categoria' || txt.includes('categoría de la prenda');
+            });
+            if (labelsAndHeaders.length > 0) {
+              targetSideElement = labelsAndHeaders[0];
+            }
           }
 
-          // 3. SI YA ESTÁ DIBUJADO EN INVENTARIO, NO RECARGARLO
-          if (document.getElementById('rb-category-organizer-box')) return;
+          if (targetSideElement && targetSideElement.parentElement) {
+            const triggerBtn = document.createElement('button');
+            triggerBtn.id = 'rb-open-organizer-btn';
+            triggerBtn.type = 'button';
+            triggerBtn.onclick = function () { window.toggleBoutiqueCategoryOrganizer(true); };
+            triggerBtn.className = 'px-3.5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black text-xs shadow-md transition flex items-center gap-1.5 shrink-0';
+            triggerBtn.innerHTML = '<span>📑</span><span>Ordenar Pestañas</span>';
 
-          // 4. DETECTAR SECCIÓN DE INVENTARIO E INSERTAR EL PANEL ARRIBA
-          const invAnchor = document.querySelector(
-            'input[onchange*="uploadProductImage"], input[oninput*="newProd"], select[onchange*="newProd"], input[placeholder*="SKU"], input[placeholder*="Prenda"]'
-          );
-
-          if (invAnchor) {
-            const invCard = invAnchor.closest('.bg-zinc-900') || invAnchor.parentElement;
-            const outerGrid = (invCard && invCard.parentElement && String(invCard.parentElement.className || '').includes('grid'))
-              ? invCard.parentElement
-              : invCard;
-
-            if (outerGrid && outerGrid.parentElement) {
-              const organizerEl = document.createElement('div');
-              organizerEl.id = 'rb-category-organizer-box';
-              organizerEl.className = 'bg-zinc-900 border-2 border-pink-500/50 rounded-3xl p-5 space-y-4 shadow-xl mb-6';
-              organizerEl.innerHTML = window.buildOrganizerInnerHTML();
-              outerGrid.parentElement.insertBefore(organizerEl, outerGrid);
+            if (targetSideElement.tagName === 'BUTTON' || targetSideElement.tagName === 'SELECT') {
+              targetSideElement.insertAdjacentElement('afterend', triggerBtn);
+            } else {
+              const parentHeader = targetSideElement.parentElement;
+              parentHeader.classList.add('flex', 'items-center', 'justify-between', ' flex-wrap', 'gap-2');
+              parentHeader.appendChild(triggerBtn);
             }
           }
         };
