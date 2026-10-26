@@ -3087,7 +3087,7 @@
         html += `<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print"><div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade"><div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><h3 class="font-black text-lg">Mi Carrito RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200">✕</button></div><div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">${activeUserGift ? `<div class="p-3.5 rounded-2xl bg-zinc-900 text-white border border-pink-500 flex items-center justify-between gap-2 text-xs"><div><span class="font-black text-pink-400 block">🎟️ Cupón VIP: ${activeUserGift.type==='percent'?activeUserGift.value+'% OFF':'$'+activeUserGift.value+' MXN'}</span><span class="text-[10px] text-rose-300 font-mono">⏳ Vence en: <strong class="vip-countdown-timer">${formatRemainingTime(activeUserGift.expiresAt)}</strong></span></div>${activeUserGift.savedForLater ? `<button onclick="applyVipCouponNow()" class="px-3 py-1.5 rounded-xl bg-pink-600 text-white font-black text-[10px] shrink-0">Aplicar Ahora</button>` : `<button onclick="saveVipCouponForLater()" class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-[10px] shrink-0">Guardar para después</button>`}</div>` : ''}${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu carrito está vacío.</p></div>` : `<div class="space-y-3">${state.customerCart.map(item => `<div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>`).join('')}</div><div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3"><label class="block font-black text-sm text-zinc-900">Método de Entrega</label><select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Calle, número, colonia..." value="${state.customerDeliveryAddress || (state.currentUser?state.currentUser.address:'')}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm" /><input type="url" placeholder="Link Google Maps (Opcional)" value="${state.customerDeliveryMapUrl || (state.currentUser?state.currentUser.mapsUrl:'')}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm text-sky-600" /></div>` : ''}</div>`}</div>${state.customerCart.length > 0 ? `<div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0"><div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold"><span>10% OFF VIP:</span><span>-$${calc.vipDiscount}</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount}</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío:</span><span>+$${calc.shippingFee}</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div><button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black text-white font-black text-sm shadow-xl">${calc.isHomeDelivery ? `Apartar y Enviar ($${calc.requiredAdvance50} Anticipo)` : 'Confirmar Pedido'}</button></div>` : ''}</div></div>`;
       }
       // =========================================================================
-      // ORGANIZADOR DE SECCIONES (SIN DISTORSIÓN Y EXCLUSIVO EN INVENTARIO)
+      // ORGANIZADOR DE SECCIONES (EXPLORAR SECCIONES + VENTANA DE SECCIONES AL 100%)
       // =========================================================================
       (() => {
         const ALL_LABELS = [
@@ -3100,8 +3100,8 @@
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
             .replace(/\s*\(\d+\)\s*/g, ' ')
-            .replace(/\b\d+\s*(prendas?|articulos?|productos?|items?)\b/gi, ' ')
-            .replace(/\b(eliminar|borrar|quitar|explorar)\b/gi, ' ')
+            .replace(/\b\d+\s*(prendas?|articulos?|productos?|items?|disponibles?)\b/gi, ' ')
+            .replace(/\b(eliminar|borrar|quitar|explorar|seccion|secciones|ver|coleccion|catalogo|ir)\b/gi, ' ')
             .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ')
             .replace(/^(\d+\s*[°º.]?\s*|#\d+\s*)/, '')
             .replace(/[^a-zA-Z0-9ñÑ\s]/g, ' ')
@@ -3110,8 +3110,8 @@
             .toLowerCase();
         };
 
-        const isIgnoredWord = function (key) {
-          if (!key || key.length < 2 || key.length > 30) return true;
+        const isSystemWord = function (key) {
+          if (!key || key.length < 2 || key.length > 32) return true;
           const bad = [
             ...ALL_LABELS,
             'eliminar', 'borrar', 'editar', 'modificar', 'cerrar', 'guardar',
@@ -3119,9 +3119,241 @@
             'nueva categoria', 'explorar', 'explorar secciones', 'secciones',
             'categorias', 'inventario', 'caja', 'ventas', 'ajustes', 'carrito',
             'mi carrito', 'mis compras', 'ordenar pestanas', 'subir', 'bajar',
-            'ver', 'ir', 'abrir', 'seleccionar', 'filtrar', 'admin', 'salir'
+            'ver', 'ir', 'abrir', 'seleccionar', 'filtrar', 'admin', 'salir',
+            'client', 'transfer', 'oxxo', 'mostrador', 'domicilio', 'true', 'false',
+            'null', 'undefined', ' unitalla', 'ch', 'm', 'g', 'xg'
           ];
           return bad.includes(key);
+        };
+
+        // EXTRAER EL NOMBRE DE LA SECCIÓN DESDE UN ELEMENTO (TARJETA, BOTÓN O FILA)
+        window.extractCategoryNameFromElement = function (el) {
+          if (!el || !el.tagName) return null;
+          const fullText = (el.innerText || el.textContent || '').trim();
+          // Ignorar tarjetas de productos que tienen precio ($) o tallas
+          if (/\$\s*\d+/.test(fullText) || fullText.length > 140) return null;
+
+          // 1. Buscar en el atributo onclick (ej: setCategory('Mujer'), deleteSection('Niños'))
+          const clickNodes = [el, ...Array.from(el.querySelectorAll('[onclick]'))];
+          for (const node of clickNodes) {
+            const oc = String(node.getAttribute('onclick') || '');
+            if (!oc || /(openProduct|addToCart|handleCustomer|whatsapp|posCart|uploadProduct)/i.test(oc)) continue;
+            const quoted = oc.match(/'([^']+)'|"([^"]+)"/g) || [];
+            for (const q of quoted) {
+              const rawVal = q.slice(1, -1).trim();
+              const k = cleanKey(rawVal);
+              if (ALL_LABELS.includes(k)) return '__ALL__';
+              if (!isSystemWord(k) && !rawVal.includes('_') && !rawVal.includes('/')) {
+                return rawVal;
+              }
+            }
+          }
+
+          // 2. Buscar en etiquetas de título internas (h2, h3, h4, h5, strong, b, span)
+          const titleCandidates = Array.from(el.querySelectorAll('h2, h3, h4, h5, strong, b, span, p'));
+          for (const node of titleCandidates) {
+            if (node.children.length > 1) continue;
+            const t = (node.innerText || node.textContent || '').trim();
+            if (!t || t.length > 35 || /^\d+$/.test(t)) continue;
+            const k = cleanKey(t);
+            if (ALL_LABELS.includes(k)) return '__ALL__';
+            if (!isSystemWord(k)) return t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim() || t;
+          }
+
+          // 3. Texto directo si es un botón u opción corta
+          if (fullText.length <= 45) {
+            const k = cleanKey(fullText);
+            if (ALL_LABELS.includes(k)) return '__ALL__';
+            if (!isSystemWord(k)) {
+              return fullText
+                .replace(/\s*\(\d+\)\s*/g, '')
+                .replace(/\b\d+\s*(prendas?|articulos?|productos?)\b/gi, '')
+                .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+                .trim() || fullText;
+            }
+          }
+          return null;
+        };
+
+        // RECOLECTAR EL 100% DE LAS CATEGORÍAS (DE FIREBASE, STATE, EXPLORAR SECCIONES Y VENTANA DE SECCIONES)
+        window.harvestAllStoreCategories = function () {
+          const collected = [];
+
+          // A) Leer de todas las propiedades de state y state.storeConfig (incluyendo Objetos de Firebase)
+          const skipProps = new Set([
+            'products', 'salesHistory', 'pendingWebOrders', 'posCart',
+            'customerCart', 'users', 'vipUsers', 'categoryOrder',
+            'whatsappCheckoutModal', 'lastPaymentBackup', 'currentUser'
+          ]);
+
+          [state, state.storeConfig].forEach(rootObj => {
+            if (!rootObj || typeof rootObj !== 'object') return;
+            Object.keys(rootObj).forEach(prop => {
+              if (skipProps.has(prop)) return;
+              const val = rootObj[prop];
+              if (!val) return;
+
+              // Si la propiedad tiene nombre relacionado con categorías/secciones o es lista/objeto
+              const isCatProp = /(cat|sec|apartado|rubro|linea|menu|tab)/i.test(prop);
+              let list = [];
+              if (Array.isArray(val)) {
+                list = val;
+              } else if (typeof val === 'object' && isCatProp) {
+                list = typeof normalizeFirebaseList === 'function' ? normalizeFirebaseList(val) : Object.values(val);
+              }
+
+              if (list.length > 0 && list.length < 60) {
+                list.forEach(item => {
+                  if (typeof item === 'string' && item.length < 35) {
+                    collected.push(item.trim());
+                  } else if (item && typeof item === 'object') {
+                    const name = item.name || item.title || item.label || item.category || item.section || item.id;
+                    if (typeof name === 'string' && name.length < 35) collected.push(name.trim());
+                  }
+                });
+              }
+            });
+          });
+
+          // B) Leer de todos los productos en state.products
+          const prods = typeof normalizeFirebaseList === 'function'
+            ? normalizeFirebaseList(state.products)
+            : (Array.isArray(state.products) ? state.products : Object.values(state.products || {}));
+
+          prods.forEach(p => {
+            if (!p) return;
+            ['category', 'cat', 'section', 'apartado', 'subcategory'].forEach(f => {
+              if (p[f] && typeof p[f] === 'string') collected.push(p[f].trim());
+            });
+          });
+
+          // C) Leer de cualquier <select> de categorías en el DOM
+          document.querySelectorAll('select').forEach(sel => {
+            if (sel.options.length >= 2 && sel.options.length <= 50) {
+              Array.from(sel.options).forEach(opt => {
+                const txt = (opt.value || opt.textContent || '').trim();
+                if (txt && !/\$\s*\d+/.test(txt) && !isSystemWord(cleanKey(txt))) {
+                  collected.push(txt);
+                }
+              });
+            }
+          });
+
+          // D) Leer directamente de los contenedores de "Explorar Secciones" y "Ventana de Secciones" en pantalla
+          const containers = window.findSectionContainersInDOM();
+          containers.forEach(container => {
+            Array.from(container.children).forEach(child => {
+              const extracted = window.extractCategoryNameFromElement(child);
+              if (extracted && extracted !== '__ALL__' && !isSystemWord(cleanKey(extracted))) {
+                collected.push(extracted);
+              }
+            });
+          });
+
+          // E) Leer del código fuente de renderApp cualquier onclick de filtro de sección fijo
+          try {
+            if (typeof window.renderApp === 'function') {
+              const src = window.renderApp.toString();
+              const regex = /(?:selectedCat|selectedCategory|catFilter|activeCat|category|section)\s*=\s*['"]([^'"]+)['"]/g;
+              let m;
+              while ((m = regex.exec(src)) !== null) {
+                if (m[1] && !isSystemWord(cleanKey(m[1]))) collected.push(m[1].trim());
+              }
+            }
+          } catch (e) {}
+
+          if (collected.length > 0) {
+            let prev = [];
+            try { prev = JSON.parse(window.localStorage.getItem('rb_boutique_detected_tabs') || '[]'); } catch (e) {}
+            const merged = [...prev, ...collected];
+            const unique = [];
+            const seen = new Set();
+            merged.forEach(item => {
+              const k = cleanKey(item);
+              if (!isSystemWord(k) && !seen.has(k)) {
+                seen.add(k);
+                unique.push(String(item).trim());
+              }
+            });
+            try { window.localStorage.setItem('rb_boutique_detected_tabs', JSON.stringify(unique)); } catch (e) {}
+          }
+        };
+
+        // ENCONTRAR EN EL DOM LOS CONTENEDORES REALES DE "EXPLORAR SECCIONES", "VENTANA DE SECCIONES" Y BARRA DE PESTAÑAS
+        window.findSectionContainersInDOM = function () {
+          const resultContainers = new Set();
+
+          // 1. Buscar por encabezados "Explorar Secciones", "Ventana de Secciones", "Secciones", "Categorías"
+          const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, span, p, div'));
+          headings.forEach(h => {
+            if (h.children.length > 3 || h.closest('#rb-category-organizer-modal')) return;
+            const txt = (h.innerText || h.textContent || '').trim().toLowerCase();
+            if (
+              txt === 'explorar secciones' ||
+              txt.includes('explorar secciones') ||
+              txt.includes('ventana de secciones') ||
+              txt.includes('administrar secciones') ||
+              txt.includes('gestionar secciones') ||
+              txt.includes('gestionar categorías') ||
+              txt.includes('administrar categorías') ||
+              txt === 'secciones' ||
+              txt === 'categorías'
+            ) {
+              // Buscar el contenedor de tarjetas/botones hermano o dentro del mismo bloque padre
+              let wrapper = h.parentElement;
+              for (let depth = 0; depth < 3 && wrapper && wrapper !== document.body; depth++) {
+                const candidateLists = [wrapper, ...Array.from(wrapper.querySelectorAll('div, nav, ul'))];
+                for (const listEl of candidateLists) {
+                  if (listEl.closest('#rb-category-organizer-modal')) continue;
+                  const ch = Array.from(listEl.children);
+                  if (ch.length >= 2 && ch.length <= 45) {
+                    const validCards = ch.filter(c => {
+                      const name = window.extractCategoryNameFromElement(c);
+                      return name !== null;
+                    });
+                    if (validCards.length >= 2 && validCards.length >= Math.ceil(ch.length * 0.5)) {
+                      resultContainers.add(listEl);
+                    }
+                  }
+                }
+                wrapper = wrapper.parentElement;
+              }
+            }
+          });
+
+          // 2. Buscar cualquier barra o lista que tenga el botón "Todas" o botones de filtro de categoría
+          const allClickables = Array.from(document.querySelectorAll('button, [onclick]'));
+          allClickables.forEach(el => {
+            if (el.closest('#rb-category-organizer-modal')) return;
+            const oc = String(el.getAttribute('onclick') || '');
+            const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+            if (
+              txt === 'todas' || txt === 'todos' || txt === 'ver todo' ||
+              /(selectedCat|selectedCategory|catFilter|activeCat|filterByCat|setCat|setSection|deleteCat|deleteSec)/i.test(oc)
+            ) {
+              const parent = el.parentElement;
+              if (parent && parent.children.length >= 2 && parent.children.length <= 45) {
+                resultContainers.add(parent);
+              }
+              if (parent && parent.parentElement && parent.parentElement.children.length >= 2 && parent.parentElement.children.length <= 45) {
+                const rowParent = parent.parentElement;
+                const validRows = Array.from(rowParent.children).filter(c => window.extractCategoryNameFromElement(c) !== null);
+                if (validRows.length >= 2 && validRows.length >= Math.ceil(rowParent.children.length * 0.5)) {
+                  resultContainers.add(rowParent);
+                }
+              }
+            }
+          });
+
+          // 3. Incluir <select> de categorías en Inventario
+          document.querySelectorAll('select').forEach(sel => {
+            if (sel.options.length >= 2 && sel.options.length <= 45) {
+              const hasPrice = Array.from(sel.options).some(o => /\$\s*\d+/.test(o.textContent || ''));
+              if (!hasPrice) resultContainers.add(sel);
+            }
+          });
+
+          return Array.from(resultContainers);
         };
 
         window.getBoutiqueCategoryOrder = function () {
@@ -3141,30 +3373,13 @@
             detectedTabs = JSON.parse(window.localStorage.getItem('rb_boutique_detected_tabs') || '[]');
           } catch (e) {}
 
+          const raw = [];
+          if (Array.isArray(saved)) raw.push(...saved);
+          if (Array.isArray(detectedTabs)) raw.push(...detectedTabs);
+
           const prods = typeof normalizeFirebaseList === 'function'
             ? normalizeFirebaseList(state.products)
             : (Array.isArray(state.products) ? state.products : Object.values(state.products || {}));
-
-          const raw = [];
-          if (Array.isArray(saved)) raw.push(...saved);
-
-          // Buscar en cualquier lista de secciones/categorías guardada en state o state.storeConfig
-          const skipKeys = new Set(['products', 'salesHistory', 'pendingWebOrders', 'posCart', 'customerCart', 'users', 'vipUsers', 'categoryOrder']);
-          [state, state.storeConfig].forEach(obj => {
-            if (!obj || typeof obj !== 'object') return;
-            Object.keys(obj).forEach(k => {
-              if (skipKeys.has(k)) return;
-              const val = obj[k];
-              if (Array.isArray(val) && val.length > 0 && val.length < 50) {
-                val.forEach(item => {
-                  if (typeof item === 'string' && item.length < 35) raw.push(item);
-                  else if (item && typeof item === 'object' && (item.name || item.title || item.label)) {
-                    raw.push(item.name || item.title || item.label);
-                  }
-                });
-              }
-            });
-          });
 
           prods.forEach(p => {
             if (!p) return;
@@ -3172,14 +3387,12 @@
             if (c && typeof c === 'string') raw.push(c.trim());
           });
 
-          if (Array.isArray(detectedTabs)) raw.push(...detectedTabs);
-
           const unique = [];
           const seen = new Set();
           raw.forEach(item => {
             const cleanDisplay = String(item || '').trim();
             const key = cleanKey(cleanDisplay);
-            if (isIgnoredWord(key)) return;
+            if (isSystemWord(key)) return;
             if (!seen.has(key)) {
               seen.add(key);
               unique.push(cleanDisplay);
@@ -3189,140 +3402,86 @@
           return unique;
         };
 
-        window.applyCategoryOrderToData = function (orderedList) {
-          const list = Array.isArray(orderedList) ? orderedList : window.getBoutiqueCategoryOrder();
+        // ORDENAR TANTO LOS DATOS EN STATE/FIREBASE COMO LOS CONTENEDORES EN EL DOM
+        window.applyCategoryOrderEverywhere = function (customOrderList) {
+          window.harvestAllStoreCategories();
+          const list = Array.isArray(customOrderList) ? customOrderList : window.getBoutiqueCategoryOrder();
           if (list.length < 2) return;
 
           const orderMap = new Map();
           list.forEach((cat, idx) => orderMap.set(cleanKey(cat), idx));
 
-          const getRank = function (val) {
-            const rawStr = (val && typeof val === 'object') ? (val.name || val.title || val.label || '') : String(val || '');
+          const getRankByString = function (val) {
+            const rawStr = (val && typeof val === 'object')
+              ? (val.name || val.title || val.label || val.category || val.section || '')
+              : String(val || '');
             const k = cleanKey(rawStr);
             if (ALL_LABELS.includes(k)) return -1;
             if (orderMap.has(k)) return orderMap.get(k);
+            for (const [mk, mv] of orderMap.entries()) {
+              if (mk && (k === mk || k.includes(mk) || mk.includes(k))) return mv;
+            }
             return 9999;
           };
 
-          // 1. Ordenar productos por sección
+          // 1. Ordenar productos
           if (Array.isArray(state.products) && state.products.length > 1) {
             state.products.sort((a, b) => {
               const catA = (a && (a.category || a.cat || a.section || a.apartado)) || '';
               const catB = (b && (b.category || b.cat || b.section || b.apartado)) || '';
-              return getRank(catA) - getRank(catB);
+              return getRankByString(catA) - getRankByString(catB);
             });
           }
 
-          // 2. Ordenar cualquier array de secciones/categorías en state y state.storeConfig
-          const skipKeys = new Set(['products', 'salesHistory', 'pendingWebOrders', 'posCart', 'customerCart', 'users', 'vipUsers', 'categoryOrder']);
-          [state, state.storeConfig].forEach(obj => {
-            if (!obj || typeof obj !== 'object') return;
-            Object.keys(obj).forEach(k => {
-              if (skipKeys.has(k)) return;
-              const arr = obj[k];
-              if (Array.isArray(arr) && arr.length > 1 && arr.length < 50) {
-                const matchCount = arr.filter(x => orderMap.has(cleanKey(typeof x === 'object' ? (x && (x.name || x.title || x.label)) : x))).length;
+          // 2. Ordenar todas las listas de categorías/secciones en state y state.storeConfig
+          const skipProps = new Set(['products', 'salesHistory', 'pendingWebOrders', 'posCart', 'customerCart', 'users', 'vipUsers', 'categoryOrder']);
+          [state, state.storeConfig].forEach(rootObj => {
+            if (!rootObj || typeof rootObj !== 'object') return;
+            Object.keys(rootObj).forEach(prop => {
+              if (skipProps.has(prop)) return;
+              const val = rootObj[prop];
+              if (Array.isArray(val) && val.length > 1 && val.length < 60) {
+                const matchCount = val.filter(x => getRankByString(x) < 9999).length;
                 if (matchCount >= 2) {
-                  arr.sort((a, b) => getRank(a) - getRank(b));
+                  val.sort((a, b) => getRankByString(a) - getRankByString(b));
+                }
+              } else if (val && typeof val === 'object' && /(cat|sec|apartado)/i.test(prop)) {
+                const normalized = typeof normalizeFirebaseList === 'function' ? normalizeFirebaseList(val) : Object.values(val);
+                if (Array.isArray(normalized) && normalized.length > 1) {
+                  normalized.sort((a, b) => getRankByString(a) - getRankByString(b));
+                  rootObj[prop] = normalized;
                 }
               }
             });
           });
 
-          // 3. Ordenar listas de secciones guardadas en localStorage
-          try {
-            for (let i = 0; i < window.localStorage.length; i++) {
-              const sKey = window.localStorage.key(i);
-              if (!sKey || sKey === 'rb_boutique_category_order') continue;
-              const rawVal = window.localStorage.getItem(sKey);
-              if (!rawVal || !rawVal.startsWith('[')) continue;
-              const parsed = JSON.parse(rawVal);
-              if (Array.isArray(parsed) && parsed.length > 1 && parsed.length < 50) {
-                const matchCount = parsed.filter(x => orderMap.has(cleanKey(typeof x === 'object' ? (x && (x.name || x.title || x.label)) : x))).length;
-                if (matchCount >= 2) {
-                  parsed.sort((a, b) => getRank(a) - getRank(b));
-                  window.localStorage.setItem(sKey, JSON.stringify(parsed));
-                }
-              }
-            }
-          } catch (e) {}
-        };
-
-        // ORDENAR ÚNICAMENTE BOTONES CORTOS DE SECCIÓN (EXPLORAR SECCIONES Y VENTANA DE SECCIONES) SIN TOCAR LAYOUTS
-        window.sortSafeSectionListsOnly = function () {
-          const list = window.getBoutiqueCategoryOrder();
-          if (list.length < 2) return;
-
-          const orderMap = new Map();
-          list.forEach((cat, idx) => orderMap.set(cleanKey(cat), idx));
-
-          // Detectar opciones de <select> en Inventario para alimentar la lista de secciones
-          document.querySelectorAll('select').forEach(sel => {
-            const opts = Array.from(sel.options);
-            if (opts.length < 2 || opts.length > 40) return;
-            const found = [];
-            opts.forEach(o => {
-              const txt = (o.value || o.textContent || '').trim();
-              const k = cleanKey(txt);
-              if (!isIgnoredWord(k) && !/\$\s*\d+/.test(txt)) found.push(txt);
-            });
-            if (found.length >= 2) {
-              try {
-                const prev = JSON.parse(window.localStorage.getItem('rb_boutique_detected_tabs') || '[]');
-                const merged = Array.from(new Set([...prev, ...found]));
-                window.localStorage.setItem('rb_boutique_detected_tabs', JSON.stringify(merged));
-              } catch (e) {}
-            }
-          });
-
-          const getSmallItemRank = function (el) {
-            if (!el || !el.tagName) return null;
-            const rawText = (el.innerText || el.textContent || '').trim();
-            // CANDADO ANTI-DISTORSIÓN: Un botón o fila de sección nunca tiene más de 55 caracteres ni precios ($)
-            if (!rawText || rawText.length > 55 || /\$\s*\d+/.test(rawText)) return null;
-            if (el.querySelectorAll('div, button').length > 6) return null;
-
-            // Revisar texto directo limpio
-            const k = cleanKey(rawText);
-            if (ALL_LABELS.includes(k)) return -1;
-            if (orderMap.has(k)) return orderMap.get(k);
-
-            // Revisar parámetro entre comillas en onclick
-            const nodesWithClick = [el, ...Array.from(el.querySelectorAll('[onclick]'))];
-            for (const node of nodesWithClick) {
-              const oc = String(node.getAttribute('onclick') || '');
-              const quoted = oc.match(/'([^']+)'|"([^"]+)"/g) || [];
-              for (const q of quoted) {
-                const qk = cleanKey(q.slice(1, -1));
-                if (ALL_LABELS.includes(qk)) return -1;
-                if (orderMap.has(qk)) return orderMap.get(qk);
-              }
-            }
-            return null;
-          };
-
-          const containers = Array.from(document.querySelectorAll('div, nav, ul, select'));
-          containers.forEach(container => {
-            if (container.closest('#rb-category-organizer-modal')) return;
+          // 3. Ordenar contenedores visuales en el DOM (Explorar Secciones, Ventana de Secciones, Barra de Pestañas y Selects)
+          const domContainers = window.findSectionContainersInDOM();
+          domContainers.forEach(container => {
+            if (container.closest && container.closest('#rb-category-organizer-modal')) return;
             const children = Array.from(container.children);
-            if (children.length < 2 || children.length > 35) return;
+            if (children.length < 2) return;
 
-            // CANDADO ESTRICTO: Si algún hijo es un bloque grande (> 65 caracteres), NO es una barra de secciones
-            const hasLargeChild = children.some(ch => ((ch.innerText || ch.textContent || '').trim().length > 65));
-            if (hasLargeChild) return;
-
-            let matchedCount = 0;
-            const scored = children.map((ch, idx) => {
-              const r = getSmallItemRank(ch);
-              if (r !== null && r >= 0) matchedCount++;
-              return { el: ch, rank: r !== null ? r : 9999 + idx };
+            let matchedItems = 0;
+            const decorated = children.map((ch, idx) => {
+              const extracted = window.extractCategoryNameFromElement(ch);
+              let rank = 9999 + idx;
+              if (extracted === '__ALL__') {
+                rank = -1;
+              } else if (extracted) {
+                const r = getRankByString(extracted);
+                if (r < 9999) {
+                  rank = r;
+                  matchedItems++;
+                }
+              }
+              return { el: ch, rank };
             });
 
-            // Solo reordenar si al menos 2 hijos son secciones y la mayoría del contenedor son secciones
-            if (matchedCount >= 2 && matchedCount >= Math.ceil(children.length * 0.6)) {
-              const sorted = [...scored].sort((a, b) => a.rank - b.rank);
-              const needMove = sorted.some((item, i) => item.el !== children[i]);
-              if (needMove) {
+            if (matchedItems >= 2) {
+              const sorted = [...decorated].sort((a, b) => a.rank - b.rank);
+              const changed = sorted.some((item, i) => item.el !== children[i]);
+              if (changed) {
                 sorted.forEach(item => container.appendChild(item.el));
               }
             }
@@ -3331,6 +3490,7 @@
 
         // MODAL DEL ORGANIZADOR
         window.openBoutiqueCategoryOrganizer = function () {
+          window.harvestAllStoreCategories();
           window.rbDraftCategories = [...window.getBoutiqueCategoryOrder()];
           window.rbTapSequenceMode = false;
           window.rbTapPickedList = [];
@@ -3396,15 +3556,15 @@
             window.localStorage.setItem('rb_boutique_detected_tabs', JSON.stringify(finalOrder));
           } catch (e) {}
 
-          window.applyCategoryOrderToData(finalOrder);
+          window.applyCategoryOrderEverywhere(finalOrder);
           saveStored('rb_boutique_config', state.storeConfig);
           saveStored('rb_boutique_products', state.products);
 
           window.closeBoutiqueCategoryOrganizer();
-          showToast('✅ Orden guardado correctamente');
+          showToast('✅ Orden guardado y aplicado en Explorar Secciones y Ventana de Secciones');
           renderApp();
           setTimeout(() => {
-            window.sortSafeSectionListsOnly();
+            window.applyCategoryOrderEverywhere(finalOrder);
             window.injectOrganizerButtonOnlyInInventory();
           }, 40);
         };
@@ -3436,8 +3596,8 @@
                 <div class="flex items-center gap-3">
                   <div class="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-lg font-black">📑</div>
                   <div>
-                    <h3 class="font-black text-white text-base">Ordenar Secciones del Catálogo</h3>
-                    <p class="text-[11px] text-zinc-400">Vista previa en vivo de cómo se acomodan tus secciones</p>
+                    <h3 class="font-black text-white text-base">Ordenar Secciones (${previewList.length} detectadas)</h3>
+                    <p class="text-[11px] text-zinc-400">Se aplica en Explorar Secciones y en Ventana de Secciones</p>
                   </div>
                 </div>
                 <button type="button" onclick="closeBoutiqueCategoryOrganizer()" class="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-black flex items-center justify-center">✕</button>
@@ -3518,7 +3678,7 @@
           `;
         };
 
-        // CANDADO ESTRICTO: SOLO PONER EL BOTÓN JUNTO AL BOTÓN "NUEVA PRENDA" EN INVENTARIO
+        // CANDADO ESTRICTO: SOLO PONER EL BOTÓN JUNTO A "NUEVA PRENDA" EN INVENTARIO
         window.injectOrganizerButtonOnlyInInventory = function () {
           const allButtons = Array.from(document.querySelectorAll('button'));
           const nuevaPrendaBtn = allButtons.find(b => {
@@ -3527,7 +3687,6 @@
           });
 
           const existingBtn = document.getElementById('rb-open-organizer-btn');
-          // Si NO está el botón "Nueva Prenda" en pantalla (ej. estás en el Catálogo), eliminar el botón si existiera y salir
           if (!nuevaPrendaBtn) {
             if (existingBtn) existingBtn.remove();
             return;
@@ -3549,16 +3708,16 @@
           nuevaPrendaBtn.insertAdjacentElement('beforebegin', triggerBtn);
         };
 
-        window.applyCategoryOrderToData(window.getBoutiqueCategoryOrder());
+        window.applyCategoryOrderEverywhere();
         setTimeout(() => {
-          window.sortSafeSectionListsOnly();
+          window.applyCategoryOrderEverywhere();
           window.injectOrganizerButtonOnlyInInventory();
         }, 30);
 
         if (!window.rbOrganizerWatcherStarted) {
           window.rbOrganizerWatcherStarted = true;
           setInterval(() => {
-            window.sortSafeSectionListsOnly();
+            window.applyCategoryOrderEverywhere();
             window.injectOrganizerButtonOnlyInInventory();
           }, 350);
         }
