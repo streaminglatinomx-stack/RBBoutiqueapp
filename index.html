@@ -4384,88 +4384,121 @@
         };
 
         window.injectWebOrdersReceiptBadges = function () {
+          // 1. LIMPIAR CUALQUIER VISUALIZACIÓN DE TICKET EN LA VISTA DEL CLIENTE
+          document.querySelectorAll('button[onclick*="openReceiptImagePreview"]').forEach(btn => {
+            if (!btn.closest('.rb-order-receipt-badge')) btn.remove();
+          });
+
+          const isClientContainer = function (el) {
+            if (!el) return true;
+            let cur = el;
+            while (cur && cur !== document.body) {
+              const txt = (cur.innerText || '').toLowerCase();
+              if (
+                cur.classList.contains('mp-pulse') ||
+                cur.querySelector?.('.mp-bar-anim') ||
+                txt.includes('seguimiento en vivo') ||
+                txt.includes('paso 1 • realiza tu pago') ||
+                txt.includes('mis compras y apartados')
+              ) {
+                return true;
+              }
+              cur = cur.parentElement;
+            }
+            return false;
+          };
+
+          // Si no estamos en la vista de Admin (Caja y Ventas / Pedidos Web), borrar cualquier badge y salir
+          const adminPanelHeadings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5')).filter(h => {
+            const t = (h.innerText || h.textContent || '').toLowerCase();
+            return t.includes('pedidos web') || t.includes('pedidos en línea') || t.includes('pedidos en linea');
+          });
+
+          if (adminPanelHeadings.length === 0) {
+            document.querySelectorAll('.rb-order-receipt-badge').forEach(b => b.remove());
+            return;
+          }
+
           const pendingOrders = normalizeFirebaseList(state.pendingWebOrders);
           if (!Array.isArray(pendingOrders) || pendingOrders.length === 0) return;
 
-          pendingOrders.forEach(ord => {
-            if (!ord || !ord.id) return;
-            const folio = String(ord.id);
-            const custName = String(ord.customer || ord.clientName || ord.userName || '').trim();
-            const resolved = window.resolveOrderReceiptData(folio, ord);
-            const imgSrc = resolved.receiptImage;
-            const hasReceipt = Boolean(imgSrc);
-            const shipName = resolved.shippingZoneName;
-            const shipCost = resolved.shippingCost;
-            const uploadedAt = resolved.receiptUploadedAt;
+          // 2. BUSCAR TARJETAS EXCLUSIVAMENTE DENTRO DE LA VENTANA DE "PEDIDOS WEB" DEL ADMIN
+          adminPanelHeadings.forEach(h => {
+            const webOrdersPanel = (h.parentElement && h.parentElement.closest('div.bg-zinc-900, div.rounded-3xl')) || h.parentElement;
+            if (!webOrdersPanel || isClientContainer(webOrdersPanel)) return;
 
-            const candidateCards = new Set();
+            pendingOrders.forEach(ord => {
+              if (!ord || !ord.id) return;
+              const folio = String(ord.id);
+              const custName = String(ord.customer || ord.clientName || ord.userName || '').trim();
+              const resolved = window.resolveOrderReceiptData(folio, ord);
+              const imgSrc = resolved.receiptImage;
+              const hasReceipt = Boolean(imgSrc);
+              const shipName = resolved.shippingZoneName;
+              const shipCost = resolved.shippingCost;
+              const uploadedAt = resolved.receiptUploadedAt;
 
-            // 1. Subir siempre desde el parentElement (para nunca atrapar el <button> mismo)
-            document.querySelectorAll(`[onclick*="${folio}"]`).forEach(el => {
-              if (el.closest('#rb-receipt-viewer-modal') || el.closest('.mp-pulse') || el.closest('.rb-order-receipt-badge')) return;
-              const parent = el.parentElement;
-              if (!parent) return;
-              const card = parent.closest('div.bg-zinc-950, div.bg-zinc-900, div.rounded-2xl, div.rounded-3xl');
-              if (card && !card.querySelector('.mp-pulse')) candidateCards.add(card);
-            });
+              const candidateCards = new Set();
 
-            // 2. Buscar tarjetas dentro del panel "Pedidos Web" que coincidan con el Folio o con el nombre del comprador
-            document.querySelectorAll('h2, h3, h4').forEach(h => {
-              const hTxt = (h.innerText || h.textContent || '').toLowerCase();
-              if (hTxt.includes('pedidos web') || hTxt.includes('pedidos en línea') || hTxt.includes('pedidos en linea')) {
-                const panel = (h.parentElement && h.parentElement.closest('div.bg-zinc-900, div.rounded-3xl')) || h.parentElement;
-                if (!panel) return;
-                const allDivCards = Array.from(panel.querySelectorAll('div.bg-zinc-950, div.bg-zinc-900')).filter(
-                  d => !d.classList.contains('rb-order-receipt-badge') && !d.querySelector('.mp-pulse')
-                );
-                allDivCards.forEach(d => {
-                  const t = d.innerText || '';
-                  if (t.includes(folio) || (custName.length > 2 && t.includes(custName))) {
-                    candidateCards.add(d);
-                  }
-                });
-              }
-            });
+              // Buscar por folio dentro de la ventana de Pedidos Web únicamente
+              webOrdersPanel.querySelectorAll(`[onclick*="${folio}"]`).forEach(el => {
+                if (el.closest('.rb-order-receipt-badge')) return;
+                const parent = el.parentElement;
+                if (!parent) return;
+                const card = parent.closest('div.bg-zinc-950, div.bg-zinc-900, div.rounded-2xl, div.rounded-3xl');
+                if (card && card !== webOrdersPanel && !isClientContainer(card)) {
+                  candidateCards.add(card);
+                }
+              });
 
-            candidateCards.forEach(card => {
-              // Evitar contenedores padres que envuelven más de un pedido diferente
-              const cardHtml = card.innerHTML || '';
-              const matchedOrdersInside = pendingOrders.filter(o => o && o.id && cardHtml.includes(String(o.id))).length;
-              if (matchedOrdersInside > 1) return;
+              // Respaldo por texto de folio o nombre dentro de la ventana de Pedidos Web
+              Array.from(webOrdersPanel.querySelectorAll('div.bg-zinc-950, div.bg-zinc-900')).forEach(d => {
+                if (d === webOrdersPanel || d.classList.contains('rb-order-receipt-badge') || isClientContainer(d)) return;
+                const t = d.innerText || '';
+                if (t.includes(folio) || (custName.length > 2 && t.includes(custName))) {
+                  candidateCards.add(d);
+                }
+              });
 
-              let badgeEl = card.querySelector('.rb-order-receipt-badge');
-              const stateSignature = `${folio}_${hasReceipt ? '1' : '0'}_${shipName}_${shipCost}`;
+              candidateCards.forEach(card => {
+                const cardHtml = card.innerHTML || '';
+                const matchedOrdersInside = pendingOrders.filter(o => o && o.id && cardHtml.includes(String(o.id))).length;
+                if (matchedOrdersInside > 1) return;
 
-              if (badgeEl && badgeEl.getAttribute('data-rb-sig') === stateSignature) return;
+                let badgeEl = card.querySelector('.rb-order-receipt-badge');
+                const stateSignature = `${folio}_${hasReceipt ? '1' : '0'}_${shipName}_${shipCost}`;
 
-              if (!badgeEl) {
-                badgeEl = document.createElement('div');
-                badgeEl.className = 'rb-order-receipt-badge';
-                card.appendChild(badgeEl);
-              }
+                if (badgeEl && badgeEl.getAttribute('data-rb-sig') === stateSignature) return;
 
-              badgeEl.setAttribute('data-rb-sig', stateSignature);
-              badgeEl.className = `rb-order-receipt-badge mt-2.5 p-3 rounded-2xl bg-zinc-950 border ${hasReceipt ? 'border-emerald-500/60' : 'border-amber-500/40'} space-y-2 text-xs shadow-md`;
-              badgeEl.innerHTML = `
-                <div class="flex items-center justify-between gap-2 flex-wrap">
-                  <span class="font-black text-pink-400 text-[11px]">${shipName} ${shipCost > 0 ? '(+$' + shipCost + ' MXN)' : '(Gratis)'}</span>
-                  ${hasReceipt ? `
-                    <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-black text-[10px]">
-                      ✅ Ticket Recibido ${uploadedAt ? '• ' + uploadedAt : ''}
-                    </span>
-                  ` : `
-                    <span class="text-[10px] text-amber-400 font-bold">⏳ Esperando foto del ticket...</span>
-                  `}
-                </div>
-                ${hasReceipt ? `
-                  <div class="flex items-center gap-3 pt-1 border-t border-zinc-800">
-                    <img src="${imgSrc}" onclick="openReceiptImagePreview('${folio}')" alt="Ticket" class="w-12 h-12 rounded-xl object-cover border border-emerald-500/50 cursor-pointer shrink-0 hover:opacity-80 transition" title="Toca para ampliar" />
-                    <button type="button" onclick="openReceiptImagePreview('${folio}')" class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg flex items-center justify-center gap-1.5 transition">
-                      <span>🔍</span><span>Ver Foto del Ticket en Grande</span>
-                    </button>
+                if (!badgeEl) {
+                  badgeEl = document.createElement('div');
+                  badgeEl.className = 'rb-order-receipt-badge';
+                  card.appendChild(badgeEl);
+                }
+
+                badgeEl.setAttribute('data-rb-sig', stateSignature);
+                badgeEl.className = `rb-order-receipt-badge mt-2.5 p-3 rounded-2xl bg-zinc-950 border ${hasReceipt ? 'border-emerald-500/60' : 'border-amber-500/40'} space-y-2 text-xs shadow-md`;
+                badgeEl.innerHTML = `
+                  <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <span class="font-black text-pink-400 text-[11px]">${shipName} ${shipCost > 0 ? '(+$' + shipCost + ' MXN)' : '(Gratis)'}</span>
+                    ${hasReceipt ? `
+                      <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-black text-[10px]">
+                        ✅ Ticket Recibido ${uploadedAt ? '• ' + uploadedAt : ''}
+                      </span>
+                    ` : `
+                      <span class="text-[10px] text-amber-400 font-bold">⏳ Esperando foto del ticket...</span>
+                    `}
                   </div>
-                ` : ''}
-              `;
+                  ${hasReceipt ? `
+                    <div class="flex items-center gap-3 pt-1 border-t border-zinc-800">
+                      <img src="${imgSrc}" onclick="openReceiptImagePreview('${folio}')" alt="Ticket" class="w-12 h-12 rounded-xl object-cover border border-emerald-500/50 cursor-pointer shrink-0 hover:opacity-80 transition" title="Toca para ampliar" />
+                      <button type="button" onclick="openReceiptImagePreview('${folio}')" class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg flex items-center justify-center gap-1.5 transition">
+                        <span>🔍</span><span>Ver Foto del Ticket en Grande</span>
+                      </button>
+                    </div>
+                  ` : ''}
+                `;
+              });
             });
           });
         };
