@@ -3087,12 +3087,12 @@
         html += `<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end no-print"><div class="bg-white text-zinc-900 w-full max-w-md h-full flex flex-col justify-between shadow-2xl animate-fade"><div class="p-5 border-b border-zinc-200 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg><h3 class="font-black text-lg">Mi Carrito RB Boutique</h3></div><button onclick="state.isBagOpen=false; renderApp();" class="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200">✕</button></div><div class="flex-1 overflow-y-auto p-5 space-y-5 bg-zinc-50">${activeUserGift ? `<div class="p-3.5 rounded-2xl bg-zinc-900 text-white border border-pink-500 flex items-center justify-between gap-2 text-xs"><div><span class="font-black text-pink-400 block">🎟️ Cupón VIP: ${activeUserGift.type==='percent'?activeUserGift.value+'% OFF':'$'+activeUserGift.value+' MXN'}</span><span class="text-[10px] text-rose-300 font-mono">⏳ Vence en: <strong class="vip-countdown-timer">${formatRemainingTime(activeUserGift.expiresAt)}</strong></span></div>${activeUserGift.savedForLater ? `<button onclick="applyVipCouponNow()" class="px-3 py-1.5 rounded-xl bg-pink-600 text-white font-black text-[10px] shrink-0">Aplicar Ahora</button>` : `<button onclick="saveVipCouponForLater()" class="px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-[10px] shrink-0">Guardar para después</button>`}</div>` : ''}${state.customerCart.length === 0 ? `<div class="text-center py-20"><p class="text-zinc-500 font-bold">Tu carrito está vacío.</p></div>` : `<div class="space-y-3">${state.customerCart.map(item => `<div class="flex gap-4 p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm"><img src="${item.image}" class="w-20 h-24 rounded-xl object-cover bg-zinc-100 shrink-0" /><div class="flex-1 flex flex-col justify-between py-0.5"><div><h4 class="text-xs font-bold text-zinc-900 line-clamp-2">${item.name}</h4><span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[10px] font-bold mt-1">Talla: ${item.size}</span></div><div class="flex items-center justify-between mt-2"><span class="text-sm font-black text-pink-600">$${item.price * item.qty}</span><div class="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-1 py-0.5"><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${item.cartId}'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">-</button><span class="text-xs font-black w-4 text-center">${item.qty}</span><button onclick="const e=state.customerCart.find(i=>i.cartId==='${item.cartId}'); const p=state.products.find(x=>x.id===e.productId); if(e.qty+1<=p.sizes[e.size]) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded flex items-center justify-center font-bold text-zinc-600 hover:bg-zinc-200">+</button></div></div></div></div>`).join('')}</div><div class="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm space-y-3"><label class="block font-black text-sm text-zinc-900">Método de Entrega</label><select onchange="state.customerDeliveryType=this.value; renderApp();" class="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-bold text-sm focus:border-black"><option value="pickup" ${state.customerDeliveryType === 'pickup' ? 'selected' : ''}>🏪 Recoger en Boutique</option><option value="delivery" ${state.customerDeliveryType === 'delivery' ? 'selected' : ''}>🛵 Envío a Domicilio (+ $80 MXN)</option></select>${state.customerDeliveryType === 'delivery' ? `<div class="space-y-2 animate-fade pt-1"><input type="text" placeholder="Calle, número, colonia..." value="${state.customerDeliveryAddress || (state.currentUser?state.currentUser.address:'')}" oninput="state.customerDeliveryAddress=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm" /><input type="url" placeholder="Link Google Maps (Opcional)" value="${state.customerDeliveryMapUrl || (state.currentUser?state.currentUser.mapsUrl:'')}" oninput="state.customerDeliveryMapUrl=this.value;" class="w-full p-3 rounded-xl border border-zinc-200 bg-white text-sm text-sky-600" /></div>` : ''}</div>`}</div>${state.customerCart.length > 0 ? `<div class="p-5 bg-white border-t border-zinc-200 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] shrink-0"><div class="space-y-1.5 text-sm mb-4"><div class="flex justify-between text-zinc-600"><span>Prendas:</span><span class="font-bold">$${calc.rawMerchandise} MXN</span></div>${calc.vipDiscount > 0 ? `<div class="flex justify-between text-emerald-600 font-bold"><span>10% OFF VIP:</span><span>-$${calc.vipDiscount}</span></div>` : ''}${calc.extraRewardDiscount > 0 ? `<div class="flex justify-between text-pink-600 font-bold"><span>${calc.extraRewardLabel}:</span><span>-$${calc.extraRewardDiscount}</span></div>` : ''}${calc.isHomeDelivery ? `<div class="flex justify-between text-sky-600 font-bold"><span>Costo Envío:</span><span>+$${calc.shippingFee}</span></div>` : ''}<div class="flex justify-between text-xl font-black text-zinc-900 border-t border-zinc-200 pt-2 mt-1"><span>Total Neto:</span><span>$${calc.grandTotal} MXN</span></div></div><button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-black text-white font-black text-sm shadow-xl">${calc.isHomeDelivery ? `Apartar y Enviar ($${calc.requiredAdvance50} Anticipo)` : 'Confirmar Pedido'}</button></div>` : ''}</div></div>`;
       }
       // =========================================================================
-      // ORGANIZADOR DE SECCIONES (EXPLORAR SECCIONES + VENTANA DE SECCIONES AL 100%)
+      // ORGANIZADOR DE SECCIONES (CON CANDADO EN BARRA INFERIOR Y MENÚS)
       // =========================================================================
       (() => {
         const ALL_LABELS = [
           'todas', 'todos', 'todo', 'ver todo', 'ver todas', 'all',
-          'inicio', 'catálogo', 'catalogo', 'catalogo completo', 'catálogo completo'
+          'catálogo', 'catalogo', 'catalogo completo', 'catálogo completo'
         ];
 
         const cleanKey = function (str) {
@@ -3114,30 +3114,65 @@
           if (!key || key.length < 2 || key.length > 32) return true;
           const bad = [
             ...ALL_LABELS,
+            'inicio', 'tendencias', 'tendencia', 'yo', 'mi perfil', 'perfil', 'cuenta',
+            'home', 'trends', 'profile', 'sections', 'bag', 'cart', 'shop', 'store',
             'eliminar', 'borrar', 'editar', 'modificar', 'cerrar', 'guardar',
             'cancelar', 'agregar', 'nueva', 'nuevo', 'nueva prenda', 'nueva seccion',
             'nueva categoria', 'explorar', 'explorar secciones', 'secciones',
-            'categorias', 'inventario', 'caja', 'ventas', 'ajustes', 'carrito',
-            'mi carrito', 'mis compras', 'ordenar pestanas', 'subir', 'bajar',
-            'ver', 'ir', 'abrir', 'seleccionar', 'filtrar', 'admin', 'salir',
-            'client', 'transfer', 'oxxo', 'mostrador', 'domicilio', 'true', 'false',
-            'null', 'undefined', ' unitalla', 'ch', 'm', 'g', 'xg'
+            'categorias', 'inventario', 'caja', 'caja y ventas', 'ventas', 'ajustes',
+            'ajustes y reportes', 'carrito', 'mi carrito', 'mis compras', 'apartados',
+            'ordenar pestanas', 'subir', 'bajar', 'ver', 'ir', 'abrir', 'seleccionar',
+            'filtrar', 'admin', 'salir', 'client', 'transfer', 'oxxo', 'mostrador',
+            'domicilio', 'true', 'false', 'null', 'undefined', 'unitalla', 'ch', 'm', 'g', 'xg'
           ];
           return bad.includes(key);
         };
 
-        // EXTRAER EL NOMBRE DE LA SECCIÓN DESDE UN ELEMENTO (TARJETA, BOTÓN O FILA)
+        // CANDADO ESTRICTO: DETECTAR SI UN CONTENEDOR ES LA BARRA INFERIOR O MENÚ PRINCIPAL PARA NO TOCARLO JAMÁS
+        window.isProtectedNavBar = function (el) {
+          if (!el || !el.tagName) return true;
+          if (el.closest && el.closest('#rb-category-organizer-modal, nav, header, footer')) {
+            const navWrap = el.closest('nav, header, footer');
+            if (navWrap) {
+              const navTxt = (navWrap.innerText || navWrap.textContent || '').toLowerCase();
+              if (
+                (navTxt.includes('inicio') && navTxt.includes('carrito')) ||
+                (navTxt.includes('tendencias') && navTxt.includes('yo')) ||
+                (navTxt.includes('caja') && navTxt.includes('inventario'))
+              ) {
+                return true;
+              }
+            }
+          }
+
+          let cur = el;
+          for (let i = 0; i < 4 && cur && cur !== document.body; i++) {
+            const cls = String(cur.className || '');
+            if (cls.includes('fixed') && (cls.includes('bottom-') || cls.includes('top-'))) {
+              return true;
+            }
+            cur = cur.parentElement;
+          }
+
+          const childTexts = Array.from(el.children || []).map(c => cleanKey(c.innerText || c.textContent || ''));
+          const navWords = ['inicio', 'tendencias', 'carrito', 'yo', 'inventario', 'caja', 'ajustes'];
+          const navHits = childTexts.filter(t => navWords.includes(t)).length;
+          if (navHits >= 2) return true;
+
+          return false;
+        };
+
         window.extractCategoryNameFromElement = function (el) {
           if (!el || !el.tagName) return null;
+          if (window.isProtectedNavBar(el) || (el.parentElement && window.isProtectedNavBar(el.parentElement))) return null;
+
           const fullText = (el.innerText || el.textContent || '').trim();
-          // Ignorar tarjetas de productos que tienen precio ($) o tallas
           if (/\$\s*\d+/.test(fullText) || fullText.length > 140) return null;
 
-          // 1. Buscar en el atributo onclick (ej: setCategory('Mujer'), deleteSection('Niños'))
           const clickNodes = [el, ...Array.from(el.querySelectorAll('[onclick]'))];
           for (const node of clickNodes) {
             const oc = String(node.getAttribute('onclick') || '');
-            if (!oc || /(openProduct|addToCart|handleCustomer|whatsapp|posCart|uploadProduct)/i.test(oc)) continue;
+            if (!oc || /(openProduct|addToCart|handleCustomer|whatsapp|posCart|uploadProduct|activeTab|bottomTab|role|isBagOpen)/i.test(oc)) continue;
             const quoted = oc.match(/'([^']+)'|"([^"]+)"/g) || [];
             for (const q of quoted) {
               const rawVal = q.slice(1, -1).trim();
@@ -3149,7 +3184,6 @@
             }
           }
 
-          // 2. Buscar en etiquetas de título internas (h2, h3, h4, h5, strong, b, span)
           const titleCandidates = Array.from(el.querySelectorAll('h2, h3, h4, h5, strong, b, span, p'));
           for (const node of titleCandidates) {
             if (node.children.length > 1) continue;
@@ -3160,7 +3194,6 @@
             if (!isSystemWord(k)) return t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim() || t;
           }
 
-          // 3. Texto directo si es un botón u opción corta
           if (fullText.length <= 45) {
             const k = cleanKey(fullText);
             if (ALL_LABELS.includes(k)) return '__ALL__';
@@ -3175,11 +3208,8 @@
           return null;
         };
 
-        // RECOLECTAR EL 100% DE LAS CATEGORÍAS (DE FIREBASE, STATE, EXPLORAR SECCIONES Y VENTANA DE SECCIONES)
         window.harvestAllStoreCategories = function () {
           const collected = [];
-
-          // A) Leer de todas las propiedades de state y state.storeConfig (incluyendo Objetos de Firebase)
           const skipProps = new Set([
             'products', 'salesHistory', 'pendingWebOrders', 'posCart',
             'customerCart', 'users', 'vipUsers', 'categoryOrder',
@@ -3193,8 +3223,7 @@
               const val = rootObj[prop];
               if (!val) return;
 
-              // Si la propiedad tiene nombre relacionado con categorías/secciones o es lista/objeto
-              const isCatProp = /(cat|sec|apartado|rubro|linea|menu|tab)/i.test(prop);
+              const isCatProp = /(cat|sec|apartado|rubro|linea)/i.test(prop);
               let list = [];
               if (Array.isArray(val)) {
                 list = val;
@@ -3215,7 +3244,6 @@
             });
           });
 
-          // B) Leer de todos los productos en state.products
           const prods = typeof normalizeFirebaseList === 'function'
             ? normalizeFirebaseList(state.products)
             : (Array.isArray(state.products) ? state.products : Object.values(state.products || {}));
@@ -3227,7 +3255,6 @@
             });
           });
 
-          // C) Leer de cualquier <select> de categorías en el DOM
           document.querySelectorAll('select').forEach(sel => {
             if (sel.options.length >= 2 && sel.options.length <= 50) {
               Array.from(sel.options).forEach(opt => {
@@ -3239,9 +3266,9 @@
             }
           });
 
-          // D) Leer directamente de los contenedores de "Explorar Secciones" y "Ventana de Secciones" en pantalla
           const containers = window.findSectionContainersInDOM();
           containers.forEach(container => {
+            if (window.isProtectedNavBar(container)) return;
             Array.from(container.children).forEach(child => {
               const extracted = window.extractCategoryNameFromElement(child);
               if (extracted && extracted !== '__ALL__' && !isSystemWord(cleanKey(extracted))) {
@@ -3249,18 +3276,6 @@
               }
             });
           });
-
-          // E) Leer del código fuente de renderApp cualquier onclick de filtro de sección fijo
-          try {
-            if (typeof window.renderApp === 'function') {
-              const src = window.renderApp.toString();
-              const regex = /(?:selectedCat|selectedCategory|catFilter|activeCat|category|section)\s*=\s*['"]([^'"]+)['"]/g;
-              let m;
-              while ((m = regex.exec(src)) !== null) {
-                if (m[1] && !isSystemWord(cleanKey(m[1]))) collected.push(m[1].trim());
-              }
-            }
-          } catch (e) {}
 
           if (collected.length > 0) {
             let prev = [];
@@ -3279,17 +3294,15 @@
           }
         };
 
-        // ENCONTRAR EN EL DOM LOS CONTENEDORES REALES DE "EXPLORAR SECCIONES", "VENTANA DE SECCIONES" Y BARRA DE PESTAÑAS
         window.findSectionContainersInDOM = function () {
           const resultContainers = new Set();
 
-          // 1. Buscar por encabezados "Explorar Secciones", "Ventana de Secciones", "Secciones", "Categorías"
-          const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, span, p, div'));
+          // 1. Buscar exclusivamente por encabezados reales (nunca botones de la barra inferior)
+          const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5'));
           headings.forEach(h => {
-            if (h.children.length > 3 || h.closest('#rb-category-organizer-modal')) return;
+            if (h.closest('#rb-category-organizer-modal') || window.isProtectedNavBar(h)) return;
             const txt = (h.innerText || h.textContent || '').trim().toLowerCase();
             if (
-              txt === 'explorar secciones' ||
               txt.includes('explorar secciones') ||
               txt.includes('ventana de secciones') ||
               txt.includes('administrar secciones') ||
@@ -3299,18 +3312,14 @@
               txt === 'secciones' ||
               txt === 'categorías'
             ) {
-              // Buscar el contenedor de tarjetas/botones hermano o dentro del mismo bloque padre
               let wrapper = h.parentElement;
               for (let depth = 0; depth < 3 && wrapper && wrapper !== document.body; depth++) {
-                const candidateLists = [wrapper, ...Array.from(wrapper.querySelectorAll('div, nav, ul'))];
+                const candidateLists = [wrapper, ...Array.from(wrapper.querySelectorAll('div, ul'))];
                 for (const listEl of candidateLists) {
-                  if (listEl.closest('#rb-category-organizer-modal')) continue;
+                  if (listEl.closest('#rb-category-organizer-modal') || window.isProtectedNavBar(listEl)) continue;
                   const ch = Array.from(listEl.children);
                   if (ch.length >= 2 && ch.length <= 45) {
-                    const validCards = ch.filter(c => {
-                      const name = window.extractCategoryNameFromElement(c);
-                      return name !== null;
-                    });
+                    const validCards = ch.filter(c => window.extractCategoryNameFromElement(c) !== null);
                     if (validCards.length >= 2 && validCards.length >= Math.ceil(ch.length * 0.5)) {
                       resultContainers.add(listEl);
                     }
@@ -3321,21 +3330,21 @@
             }
           });
 
-          // 2. Buscar cualquier barra o lista que tenga el botón "Todas" o botones de filtro de categoría
+          // 2. Buscar barras de filtro de categorías (ignorando siempre la barra inferior)
           const allClickables = Array.from(document.querySelectorAll('button, [onclick]'));
           allClickables.forEach(el => {
-            if (el.closest('#rb-category-organizer-modal')) return;
+            if (el.closest('#rb-category-organizer-modal') || window.isProtectedNavBar(el)) return;
             const oc = String(el.getAttribute('onclick') || '');
             const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
             if (
               txt === 'todas' || txt === 'todos' || txt === 'ver todo' ||
-              /(selectedCat|selectedCategory|catFilter|activeCat|filterByCat|setCat|setSection|deleteCat|deleteSec)/i.test(oc)
+              /(selectedCat|selectedCategory|catFilter|activeCat|filterByCat|setCat|deleteCat|deleteSec)/i.test(oc)
             ) {
               const parent = el.parentElement;
-              if (parent && parent.children.length >= 2 && parent.children.length <= 45) {
+              if (parent && !window.isProtectedNavBar(parent) && parent.children.length >= 2 && parent.children.length <= 45) {
                 resultContainers.add(parent);
               }
-              if (parent && parent.parentElement && parent.parentElement.children.length >= 2 && parent.parentElement.children.length <= 45) {
+              if (parent && parent.parentElement && !window.isProtectedNavBar(parent.parentElement) && parent.parentElement.children.length >= 2 && parent.parentElement.children.length <= 45) {
                 const rowParent = parent.parentElement;
                 const validRows = Array.from(rowParent.children).filter(c => window.extractCategoryNameFromElement(c) !== null);
                 if (validRows.length >= 2 && validRows.length >= Math.ceil(rowParent.children.length * 0.5)) {
@@ -3345,7 +3354,6 @@
             }
           });
 
-          // 3. Incluir <select> de categorías en Inventario
           document.querySelectorAll('select').forEach(sel => {
             if (sel.options.length >= 2 && sel.options.length <= 45) {
               const hasPrice = Array.from(sel.options).some(o => /\$\s*\d+/.test(o.textContent || ''));
@@ -3353,7 +3361,7 @@
             }
           });
 
-          return Array.from(resultContainers);
+          return Array.from(resultContainers).filter(c => !window.isProtectedNavBar(c));
         };
 
         window.getBoutiqueCategoryOrder = function () {
@@ -3402,7 +3410,6 @@
           return unique;
         };
 
-        // ORDENAR TANTO LOS DATOS EN STATE/FIREBASE COMO LOS CONTENEDORES EN EL DOM
         window.applyCategoryOrderEverywhere = function (customOrderList) {
           window.harvestAllStoreCategories();
           const list = Array.isArray(customOrderList) ? customOrderList : window.getBoutiqueCategoryOrder();
@@ -3424,7 +3431,6 @@
             return 9999;
           };
 
-          // 1. Ordenar productos
           if (Array.isArray(state.products) && state.products.length > 1) {
             state.products.sort((a, b) => {
               const catA = (a && (a.category || a.cat || a.section || a.apartado)) || '';
@@ -3433,7 +3439,6 @@
             });
           }
 
-          // 2. Ordenar todas las listas de categorías/secciones en state y state.storeConfig
           const skipProps = new Set(['products', 'salesHistory', 'pendingWebOrders', 'posCart', 'customerCart', 'users', 'vipUsers', 'categoryOrder']);
           [state, state.storeConfig].forEach(rootObj => {
             if (!rootObj || typeof rootObj !== 'object') return;
@@ -3455,9 +3460,9 @@
             });
           });
 
-          // 3. Ordenar contenedores visuales en el DOM (Explorar Secciones, Ventana de Secciones, Barra de Pestañas y Selects)
           const domContainers = window.findSectionContainersInDOM();
           domContainers.forEach(container => {
+            if (window.isProtectedNavBar(container)) return;
             if (container.closest && container.closest('#rb-category-organizer-modal')) return;
             const children = Array.from(container.children);
             if (children.length < 2) return;
@@ -3488,7 +3493,6 @@
           });
         };
 
-        // MODAL DEL ORGANIZADOR
         window.openBoutiqueCategoryOrganizer = function () {
           window.harvestAllStoreCategories();
           window.rbDraftCategories = [...window.getBoutiqueCategoryOrder()];
@@ -3543,10 +3547,10 @@
         };
 
         window.commitCategoryOrderToStore = function () {
-          let finalOrder = [...(window.rbDraftCategories || window.getBoutiqueCategoryOrder())];
+          let finalOrder = [...(window.rbDraftCategories || window.getBoutiqueCategoryOrder())].filter(c => !isSystemWord(cleanKey(c)));
           if (window.rbTapSequenceMode && Array.isArray(window.rbTapPickedList) && window.rbTapPickedList.length > 0) {
             const remaining = finalOrder.filter(c => !window.rbTapPickedList.includes(c));
-            finalOrder = [...window.rbTapPickedList, ...remaining];
+            finalOrder = [...window.rbTapPickedList, ...remaining].filter(c => !isSystemWord(cleanKey(c)));
           }
 
           if (!state.storeConfig) state.storeConfig = {};
@@ -3561,7 +3565,7 @@
           saveStored('rb_boutique_products', state.products);
 
           window.closeBoutiqueCategoryOrganizer();
-          showToast('✅ Orden guardado y aplicado en Explorar Secciones y Ventana de Secciones');
+          showToast('✅ Orden guardado y aplicado');
           renderApp();
           setTimeout(() => {
             window.applyCategoryOrderEverywhere(finalOrder);
@@ -3576,7 +3580,7 @@
             return;
           }
 
-          const baseList = window.rbDraftCategories || window.getBoutiqueCategoryOrder();
+          const baseList = (window.rbDraftCategories || window.getBoutiqueCategoryOrder()).filter(c => !isSystemWord(cleanKey(c)));
           const isTapMode = Boolean(window.rbTapSequenceMode);
           const picked = window.rbTapPickedList || [];
           const previewList = isTapMode
@@ -3678,7 +3682,6 @@
           `;
         };
 
-        // CANDADO ESTRICTO: SOLO PONER EL BOTÓN JUNTO A "NUEVA PRENDA" EN INVENTARIO
         window.injectOrganizerButtonOnlyInInventory = function () {
           const allButtons = Array.from(document.querySelectorAll('button'));
           const nuevaPrendaBtn = allButtons.find(b => {
