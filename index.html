@@ -4156,30 +4156,148 @@
         }
 
         // INYECTAR BOTÓN DE VER TICKET Y DESGLOSE DE ENVÍO EN "PEDIDOS WEB" (ADMIN) Y PERFIL
-        const pendingOrdersForBadges = normalizeFirebaseList(state.pendingWebOrders);
-        pendingOrdersForBadges.forEach(ord => {
-          if (!ord || !ord.id) return;
-          const meta = window.getOrderExtraMeta(ord.id);
-          const hasReceipt = Boolean(meta.receiptImage || ord.receiptImage);
-          const shipName = meta.shippingZoneName || ord.shippingZoneName || '🏢 Recoger en Boutique';
-          const shipCost = Number(meta.shippingCost ?? ord.shippingCost ?? 0);
+        window.saveOrderExtraMeta = function (folio, dataObj) {
+          if (!folio) return;
+          if (!state.storeConfig) state.storeConfig = {};
+          if (!state.storeConfig.ordersExtraMeta || typeof state.storeConfig.ordersExtraMeta !== 'object') {
+            state.storeConfig.ordersExtraMeta = {};
+          }
+          const current = window.getOrderExtraMeta(folio);
+          const merged = { ...current, ...dataObj, updatedAt: Date.now() };
+          state.storeConfig.ordersExtraMeta[folio] = merged;
 
-          const adminBadgeHTML = `
-            <div class="mt-2 p-2.5 rounded-xl bg-zinc-950 border ${hasReceipt ? 'border-emerald-500/50' : 'border-amber-500/30'} space-y-1.5 text-[11px]">
-              <div class="flex items-center justify-between gap-2 flex-wrap">
-                <span class="font-bold text-pink-400">${shipName} ${shipCost > 0 ? '(+$' + shipCost + ' MXN)' : '(Gratis)'}</span>
+          try {
+            window.localStorage.setItem('rb_boutique_orders_meta', JSON.stringify(state.storeConfig.ordersExtraMeta));
+          } catch (e) {}
+
+          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+          let updatedPending = false;
+          pendingList.forEach(o => {
+            if (o && String(o.id) === String(folio)) {
+              Object.assign(o, merged);
+              updatedPending = true;
+            }
+          });
+
+          if (updatedPending) {
+            state.pendingWebOrders = pendingList;
+            // Detectar la llave exacta que usa tu app para guardar pendingWebOrders en Firebase
+            try {
+              const checkoutSrc = typeof window.handleCustomerCheckout === 'function' ? window.handleCustomerCheckout.toString() : '';
+              const keyMatches = checkoutSrc.match(/saveStored\(\s*['"]([^'"]+)['"]/g) || [];
+              keyMatches.forEach(m => {
+                const k = m.replace(/saveStored\(\s*['"]|['"]$/g, '');
+                if (k && /(pending|web|order|pedido)/i.test(k)) {
+                  saveStored(k, state.pendingWebOrders);
+                }
+              });
+            } catch (e) {}
+            saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+          }
+
+          saveStored('rb_boutique_config', state.storeConfig);
+        };
+
+        window.injectWebOrdersReceiptBadges = function () {
+          const pendingOrders = normalizeFirebaseList(state.pendingWebOrders);
+          if (!Array.isArray(pendingOrders) || pendingOrders.length === 0) return;
+
+          pendingOrders.forEach((ord, idx) => {
+            if (!ord || !ord.id) return;
+            const folio = String(ord.id);
+            const meta = window.getOrderExtraMeta(folio);
+            const imgSrc = meta.receiptImage || ord.receiptImage || '';
+            const hasReceipt = Boolean(imgSrc);
+            const shipName = meta.shippingZoneName || ord.shippingZoneName || '🏢 Recoger en Boutique';
+            const shipCost = Number(meta.shippingCost ?? ord.shippingCost ?? 0);
+            const uploadedAt = meta.receiptUploadedAt || ord.receiptUploadedAt || '';
+
+            // Buscar todas las tarjetas donde aparece este pedido (en Pedidos Web y en Perfil)
+            const candidateCards = new Set();
+
+            // 1. Por botones con onclick que contengan el folio o el índice en Pedidos Web
+            document.querySelectorAll(`[onclick*="${folio}"]`).forEach(el => {
+              if (el.closest('#rb-receipt-viewer-modal') || el.closest('.mp-pulse')) return;
+              if (el.id && el.id.startsWith('rb-')) return;
+              const card = el.closest('.bg-zinc-950, .bg-zinc-900, .rounded-2xl, .rounded-3xl');
+              if (card && !card.querySelector('.mp-pulse')) candidateCards.add(card);
+            });
+
+            // 2. Por texto visible que contenga el Folio o dentro del panel "Pedidos Web"
+            document.querySelectorAll('span, strong, b, h4, h5, p, div').forEach(el => {
+              if (el.children.length > 2) return;
+              if (el.closest('#rb-receipt-viewer-modal') || el.closest('.mp-pulse')) return;
+              const txt = (el.innerText || el.textContent || '').trim();
+              if (txt.includes(folio)) {
+                const card = el.closest('.bg-zinc-950, .bg-zinc-900, .rounded-2xl, .rounded-3xl');
+                if (card && !card.querySelector('.mp-pulse')) candidateCards.add(card);
+              }
+            });
+
+            // 3. Por contenedor de "Pedidos Web" si las tarjetas no muestran el ID en texto
+            document.querySelectorAll('h2, h3, h4').forEach(h => {
+              const hTxt = (h.innerText || h.textContent || '').toLowerCase();
+              if (hTxt.includes('pedidos web') || hTxt.includes('pedidos en línea') || hTxt.includes('pedidos en linea')) {
+                const panel = h.closest('.bg-zinc-900, .rounded-3xl') || h.parentElement;
+                if (panel) {
+                  const cards = Array.from(panel.querySelectorAll('.bg-zinc-950.border, .bg-zinc-900.border')).filter(
+                    c => !c.id.startsWith('rb-admin-receipt-') && (c.innerText || '').includes('$')
+                  );
+                  if (cards[idx]) candidateCards.add(cards[idx]);
+                }
+              }
+            });
+
+            candidateCards.forEach((card, cIdx) => {
+              // Evitar contenedores padres gigantes que agrupan varios pedidos a la vez
+              const cardText = card.innerText || '';
+              const otherFoliosCount = pendingOrders.filter(o => o && o.id && cardText.includes(String(o.id))).length;
+              if (otherFoliosCount > 1) return;
+
+              const badgeId = `rb-admin-receipt-${folio}-${cIdx}`;
+              let badgeEl = card.querySelector(`[data-rb-receipt-folio="${folio}"]`);
+              const stateSignature = `${hasReceipt ? '1' : '0'}_${shipName}_${shipCost}`;
+
+              if (badgeEl && badgeEl.getAttribute('data-rb-sig') === stateSignature) return;
+
+              if (!badgeEl) {
+                badgeEl = document.createElement('div');
+                badgeEl.id = badgeId;
+                badgeEl.setAttribute('data-rb-receipt-folio', folio);
+                card.appendChild(badgeEl);
+              }
+
+              badgeEl.setAttribute('data-rb-sig', stateSignature);
+              badgeEl.className = `mt-2.5 p-3 rounded-2xl bg-zinc-950 border ${hasReceipt ? 'border-emerald-500/60' : 'border-amber-500/40'} space-y-2 text-xs shadow-md`;
+              badgeEl.innerHTML = `
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                  <span class="font-black text-pink-400 text-[11px]">${shipName} ${shipCost > 0 ? '(+$' + shipCost + ' MXN)' : '(Gratis)'}</span>
+                  ${hasReceipt ? `
+                    <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-black text-[10px]">
+                      ✅ Ticket Recibido ${uploadedAt ? '• ' + uploadedAt : ''}
+                    </span>
+                  ` : `
+                    <span class="text-[10px] text-amber-400 font-bold">⏳ Esperando foto del ticket...</span>
+                  `}
+                </div>
                 ${hasReceipt ? `
-                  <button type="button" onclick="openReceiptImagePreview('${ord.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] shadow flex items-center gap-1">
-                    🖼️ Ver Foto del Ticket
-                  </button>
-                ` : `
-                  <span class="text-[10px] text-amber-400 font-bold">⏳ Sin foto de ticket aún</span>
-                `}
-              </div>
-            </div>
-          `;
-          html = html.replace(ord.id, ord.id + adminBadgeHTML);
-        });
+                  <div class="flex items-center gap-3 pt-1 border-t border-zinc-800">
+                    <img src="${imgSrc}" onclick="openReceiptImagePreview('${folio}')" alt="Ticket" class="w-12 h-12 rounded-xl object-cover border border-emerald-500/50 cursor-pointer shrink-0 hover:opacity-80 transition" title="Toca para ampliar" />
+                    <button type="button" onclick="openReceiptImagePreview('${folio}')" class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg flex items-center justify-center gap-1.5 transition">
+                      <span>🔍</span><span>Ver Foto del Ticket en Grande</span>
+                    </button>
+                  </div>
+                ` : ''}
+              `;
+            });
+          });
+        };
+
+        setTimeout(window.injectWebOrdersReceiptBadges, 30);
+        if (!window.rbWebOrdersReceiptWatcher) {
+          window.rbWebOrdersReceiptWatcher = true;
+          setInterval(window.injectWebOrdersReceiptBadges, 400);
+        }
       }
 
       window.irAlRastreadorCarrito = function (folio) {
