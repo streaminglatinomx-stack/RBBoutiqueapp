@@ -3727,7 +3727,433 @@
       })();
       
       // CAMBIAR TEXTO DEL BOTÓN DEL CARRITO A "REALIZAR PEDIDO" Y GUARDAR FOLIO ACTIVO
-      html = html.replace(/(onclick="handleCustomerCheckout\(\)"[^>]*>)([\s\S]*?)(<\/button>)/, '$1🛍️ Realizar Pedido$3');
+      // =========================================================================
+      // SISTEMA INTEGRAL: ENVÍOS A DOMICILIO + CARGA DE TICKET + WHATSAPP PASO 3
+      // =========================================================================
+      {
+        const DEFAULT_SHIPPING_ZONES = [
+          { id: 'pickup', name: '🏢 Recoger en Boutique', price: 0, isPickup: true },
+          { id: 'centro', name: '🛵 Envío Zona Centro', price: 40, isPickup: false },
+          { id: 'periferia', name: '🚗 Envío Zona Periferia / Lejana', price: 80, isPickup: false }
+        ];
+
+        window.getBoutiqueShippingZones = function () {
+          let zones = (state.storeConfig && Array.isArray(state.storeConfig.shippingZones) && state.storeConfig.shippingZones.length > 0)
+            ? state.storeConfig.shippingZones
+            : null;
+          if (!zones) {
+            try {
+              const local = JSON.parse(window.localStorage.getItem('rb_boutique_shipping_zones') || 'null');
+              if (Array.isArray(local) && local.length > 0) zones = local;
+            } catch (e) {}
+          }
+          if (!zones || zones.length === 0) {
+            zones = DEFAULT_SHIPPING_ZONES;
+          }
+          const hasPickup = zones.some(z => z && (z.id === 'pickup' || z.isPickup));
+          if (!hasPickup) {
+            zones = [{ id: 'pickup', name: '🏢 Recoger en Boutique', price: 0, isPickup: true }, ...zones];
+          }
+          return zones;
+        };
+
+        window.saveBoutiqueShippingZones = function (zonesList) {
+          if (!state.storeConfig) state.storeConfig = {};
+          state.storeConfig.shippingZones = zonesList;
+          try { window.localStorage.setItem('rb_boutique_shipping_zones', JSON.stringify(zonesList)); } catch (e) {}
+          saveStored('rb_boutique_config', state.storeConfig);
+        };
+
+        window.addBoutiqueShippingZone = function () {
+          const nameInput = document.getElementById('rb-new-zone-name');
+          const priceInput = document.getElementById('rb-new-zone-price');
+          const rawName = nameInput ? nameInput.value.trim() : '';
+          const rawPrice = priceInput ? Number(priceInput.value) : 0;
+          if (!rawName) {
+            showToast('⚠️ Escribe el nombre de la zona de envío');
+            return;
+          }
+          const zones = [...window.getBoutiqueShippingZones()];
+          const finalName = /^[\u{1F300}-\u{1FAFF}]/u.test(rawName) ? rawName : '🛵 ' + rawName;
+          zones.push({
+            id: 'zone_' + Date.now(),
+            name: finalName,
+            price: Math.max(0, isNaN(rawPrice) ? 0 : rawPrice),
+            isPickup: false
+          });
+          window.saveBoutiqueShippingZones(zones);
+          showToast('✅ Zona de envío agregada: ' + finalName);
+          renderApp();
+        };
+
+        window.updateBoutiqueShippingZonePrice = function (zoneId, newPriceVal) {
+          const zones = window.getBoutiqueShippingZones().map(z => {
+            if (z.id === zoneId && !z.isPickup) {
+              return { ...z, price: Math.max(0, Number(newPriceVal) || 0) };
+            }
+            return z;
+          });
+          window.saveBoutiqueShippingZones(zones);
+          showToast('💾 Costo de envío actualizado');
+          renderApp();
+        };
+
+        window.deleteBoutiqueShippingZone = function (zoneId) {
+          const zones = window.getBoutiqueShippingZones().filter(z => z.id !== zoneId || z.isPickup);
+          window.saveBoutiqueShippingZones(zones);
+          showToast('🗑️ Zona de envío eliminada');
+          renderApp();
+        };
+
+        window.getSelectedShippingZone = function () {
+          const zones = window.getBoutiqueShippingZones();
+          const savedId = state.selectedShippingZoneId || (() => {
+            try { return window.localStorage.getItem('rb_boutique_selected_zone'); } catch (e) { return null; }
+          })();
+          return zones.find(z => z.id === savedId) || zones[0];
+        };
+
+        window.selectCustomerShippingZone = function (zoneId) {
+          state.selectedShippingZoneId = zoneId;
+          try { window.localStorage.setItem('rb_boutique_selected_zone', zoneId); } catch (e) {}
+          renderApp();
+        };
+
+        // METADATOS DE PEDIDOS (ENVÍO Y FOTO DEL TICKET) SINCRONIZADOS EN FIREBASE
+        window.getOrderExtraMeta = function (folio) {
+          if (!folio) return {};
+          const fromConfig = (state.storeConfig && state.storeConfig.ordersExtraMeta && state.storeConfig.ordersExtraMeta[folio])
+            ? state.storeConfig.ordersExtraMeta[folio]
+            : null;
+          if (fromConfig) return fromConfig;
+          try {
+            const localMeta = JSON.parse(window.localStorage.getItem('rb_boutique_orders_meta') || '{}');
+            return localMeta[folio] || {};
+          } catch (e) {
+            return {};
+          }
+        };
+
+        window.saveOrderExtraMeta = function (folio, dataObj) {
+          if (!folio) return;
+          if (!state.storeConfig) state.storeConfig = {};
+          if (!state.storeConfig.ordersExtraMeta || typeof state.storeConfig.ordersExtraMeta !== 'object') {
+            state.storeConfig.ordersExtraMeta = {};
+          }
+          const current = window.getOrderExtraMeta(folio);
+          const merged = { ...current, ...dataObj, updatedAt: Date.now() };
+          state.storeConfig.ordersExtraMeta[folio] = merged;
+
+          // Conservar solo los 25 pedidos más recientes para mantener rápida la base de datos
+          const allKeys = Object.keys(state.storeConfig.ordersExtraMeta);
+          if (allKeys.length > 25) {
+            allKeys
+              .sort((a, b) => (state.storeConfig.ordersExtraMeta[a].updatedAt || 0) - (state.storeConfig.ordersExtraMeta[b].updatedAt || 0))
+              .slice(0, allKeys.length - 25)
+              .forEach(k => delete state.storeConfig.ordersExtraMeta[k]);
+          }
+
+          try {
+            window.localStorage.setItem('rb_boutique_orders_meta', JSON.stringify(state.storeConfig.ordersExtraMeta));
+          } catch (e) {}
+
+          // Actualizar también dentro del pedido en pendingWebOrders si existe
+          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+          let updatedPending = false;
+          pendingList.forEach(o => {
+            if (o && o.id === folio) {
+              Object.assign(o, merged);
+              updatedPending = true;
+            }
+          });
+          if (updatedPending) {
+            state.pendingWebOrders = pendingList;
+            try {
+              for (let i = 0; i < window.localStorage.length; i++) {
+                const k = window.localStorage.key(i);
+                if (k && /(pending|web_order|webOrder)/i.test(k)) {
+                  saveStored(k, state.pendingWebOrders);
+                }
+              }
+            } catch (e) {}
+          }
+
+          saveStored('rb_boutique_config', state.storeConfig);
+        };
+
+        // SUBIR Y COMPRIMIR FOTO DEL TICKET / CAPTURA DEL CLIENTE
+        window.handleClientReceiptUpload = function (inputEl, folio, paymentMethodLabel) {
+          const file = inputEl && inputEl.files && inputEl.files[0];
+          if (!file || !folio) return;
+          showToast('⏳ Procesando foto de tu comprobante...');
+
+          const reader = new FileReader();
+          reader.onload = function (evt) {
+            const img = new Image();
+            img.onload = function () {
+              const canvas = document.createElement('canvas');
+              const MAX_DIM = 850;
+              let w = img.width;
+              let h = img.height;
+              if (w > h && w > MAX_DIM) {
+                h = Math.round((h * MAX_DIM) / w);
+                w = MAX_DIM;
+              } else if (h > MAX_DIM) {
+                w = Math.round((w * MAX_DIM) / h);
+                h = MAX_DIM;
+              }
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, w, h);
+              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+              const timeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+              window.saveOrderExtraMeta(folio, {
+                receiptImage: compressedDataUrl,
+                receiptUploadedAt: timeStr,
+                paymentMethodChoice: paymentMethodLabel || 'Transferencia / Depósito'
+              });
+
+              state.activeTrackingFolio = folio;
+              try { window.localStorage.setItem('rb_boutique_active_folio', folio); } catch (e) {}
+              state.whatsappCheckoutModal = null;
+              state.isBagOpen = true;
+              showToast('✅ ¡Comprobante cargado con éxito! Validando tu pago...');
+              renderApp();
+            };
+            img.src = evt.target.result;
+          };
+          reader.readAsDataURL(file);
+        };
+
+        // VISOR EN PANTALLA COMPLETA DE LA FOTO DEL TICKET (PARA ADMIN Y CLIENTE)
+        window.openReceiptImagePreview = function (folio) {
+          const meta = window.getOrderExtraMeta(folio);
+          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+          const foundOrder = pendingList.find(o => o && o.id === folio) || (state.salesHistory || []).find(o => o && o.id === folio) || {};
+          const imgSrc = meta.receiptImage || foundOrder.receiptImage;
+          if (!imgSrc) {
+            showToast('⚠️ Este pedido aún no tiene foto de comprobante adjunta.');
+            return;
+          }
+
+          let viewer = document.getElementById('rb-receipt-viewer-modal');
+          if (!viewer) {
+            viewer = document.createElement('div');
+            viewer.id = 'rb-receipt-viewer-modal';
+            viewer.className = 'fixed inset-0 z-[120] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print';
+            document.body.appendChild(viewer);
+          }
+
+          const shipName = meta.shippingZoneName || foundOrder.shippingZoneName || '🏢 Recoger en Boutique';
+          const shipCost = Number(meta.shippingCost ?? foundOrder.shippingCost ?? 0);
+          const totalAmount = meta.totalWithShipping || foundOrder.total || 0;
+
+          viewer.innerHTML = `
+            <div class="bg-zinc-900 border-2 border-emerald-500/50 rounded-3xl max-w-md w-full p-5 space-y-4 text-white shadow-2xl animate-fade">
+              <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div>
+                  <span class="text-[10px] font-black uppercase text-emerald-400">Comprobante de Pago • Folio ${folio}</span>
+                  <h4 class="font-black text-base text-white">${foundOrder.customer || 'Cliente Web'}</h4>
+                </div>
+                <button type="button" onclick="document.getElementById('rb-receipt-viewer-modal').remove()" class="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-black flex items-center justify-center">✕</button>
+              </div>
+
+              <div class="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs space-y-1">
+                <div class="flex justify-between"><span class="text-zinc-400">Método de Pago:</span><strong class="text-white">${meta.paymentMethodChoice || 'Transferencia / Depósito'}</strong></div>
+                <div class="flex justify-between"><span class="text-zinc-400">Entrega elegida:</span><strong class="text-pink-400">${shipName} ${shipCost > 0 ? '(+$' + shipCost + ')' : '(Gratis)'}</strong></div>
+                <div class="flex justify-between pt-1 border-t border-zinc-800"><span class="text-zinc-400 font-bold">Total del Pedido:</span><strong class="text-emerald-400 text-sm font-black">$${totalAmount} MXN</strong></div>
+                ${meta.receiptUploadedAt ? `<div class="text-[10px] text-zinc-500 text-right">Subido a las ${meta.receiptUploadedAt}</div>` : ''}
+              </div>
+
+              <div class="bg-black rounded-2xl p-2 border border-zinc-800 max-h-[55vh] overflow-y-auto flex items-center justify-center">
+                <img src="${imgSrc}" alt="Ticket de pago ${folio}" class="max-w-full rounded-xl object-contain" />
+              </div>
+
+              <button type="button" onclick="document.getElementById('rb-receipt-viewer-modal').remove()" class="w-full py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-white font-black text-xs">
+                Cerrar Vista de Comprobante
+              </button>
+            </div>
+          `;
+        };
+
+        // CALCULAR SUBTOTAL DEL CARRITO DEL CLIENTE
+        const cartArr = Array.isArray(state.customerCart) ? state.customerCart : (Array.isArray(state.cart) ? state.cart : []);
+        const cartItemsSubtotal = cartArr.reduce((acc, item) => {
+          const p = Number(item && (item.price || item.salePrice || item.unitPrice) || 0);
+          const q = Number(item && (item.qty || item.quantity) || 1);
+          return acc + (p * q);
+        }, 0);
+
+        const zonesList = window.getBoutiqueShippingZones();
+        const currentZone = window.getSelectedShippingZone();
+        const currentShippingCost = Number(currentZone.price) || 0;
+        const finalCartTotal = cartItemsSubtotal + currentShippingCost;
+
+        // INTERCEPTAR handleCustomerCheckout PARA SUMAR EL ENVÍO AL PEDIDO Y AL MODAL DE PAGO
+        if (!window.rbCheckoutShippingHooked && typeof window.handleCustomerCheckout === 'function') {
+          window.rbCheckoutShippingHooked = true;
+          const origCheckout = window.handleCustomerCheckout;
+          window.handleCustomerCheckout = function () {
+            const chosenZone = window.getSelectedShippingZone();
+            const shipCost = Number(chosenZone.price) || 0;
+            const res = origCheckout.apply(this, arguments);
+
+            if (state.whatsappCheckoutModal) {
+              const w = state.whatsappCheckoutModal;
+              const folio = w.folio;
+              if (!w.shippingApplied) {
+                w.shippingApplied = true;
+                const baseTotal = Number(w.calc && w.calc.requiredAdvance50) || 0;
+                const newTotal = baseTotal + shipCost;
+                if (w.calc) {
+                  w.calc.itemsSubtotal = baseTotal;
+                  w.calc.shippingCost = shipCost;
+                  w.calc.shippingZoneName = chosenZone.name;
+                  w.calc.requiredAdvance50 = newTotal;
+                }
+
+                const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+                const ord = pendingList.find(o => o && o.id === folio);
+                if (ord) {
+                  ord.itemsSubtotal = baseTotal;
+                  ord.shippingCost = shipCost;
+                  ord.shippingZoneName = chosenZone.name;
+                  ord.total = newTotal;
+                }
+
+                window.saveOrderExtraMeta(folio, {
+                  itemsSubtotal: baseTotal,
+                  shippingCost: shipCost,
+                  shippingZoneName: chosenZone.name,
+                  totalWithShipping: newTotal
+                });
+              }
+              renderApp();
+            }
+            return res;
+          };
+        }
+
+        // INYECTAR SELECTOR DE ENVÍO EN "MI CARRITO" JUSTO ARRIBA DE "REALIZAR PEDIDO"
+        const shippingSelectorCartHTML = `
+          <div class="p-3.5 rounded-2xl bg-zinc-950 border border-pink-500/40 space-y-2.5 mb-3 text-left">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-black uppercase tracking-wider text-pink-400">🚚 ¿Cómo deseas recibir tu pedido?</span>
+              <span class="text-[10px] font-bold text-zinc-400">Elige una opción</span>
+            </div>
+            <div class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              ${zonesList.map(z => {
+                const isSelected = z.id === currentZone.id;
+                const zPrice = Number(z.price) || 0;
+                return `
+                  <button type="button" onclick="selectCustomerShippingZone('${z.id}')" class="w-full p-2.5 rounded-xl border text-xs flex items-center justify-between transition ${isSelected ? 'bg-pink-600/20 border-pink-500 text-white shadow' : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700'}">
+                    <span class="font-bold flex items-center gap-2">
+                      <span class="w-4 h-4 rounded-full border flex items-center justify-center text-[9px] ${isSelected ? 'border-pink-400 bg-pink-500 text-white' : 'border-zinc-600'}">${isSelected ? '✓' : ''}</span>
+                      <span>${z.name}</span>
+                    </span>
+                    <span class="font-black ${zPrice === 0 ? 'text-emerald-400' : 'text-amber-300'}">${zPrice === 0 ? 'Gratis' : '+$' + zPrice + ' MXN'}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+            ${cartItemsSubtotal > 0 ? `
+              <div class="pt-2 border-t border-zinc-800 text-xs space-y-1">
+                <div class="flex justify-between text-zinc-400"><span>Subtotal prendas:</span><span>$${cartItemsSubtotal} MXN</span></div>
+                <div class="flex justify-between text-zinc-300"><span>Entrega (${currentZone.name}):</span><span class="font-bold ${currentShippingCost === 0 ? 'text-emerald-400' : 'text-amber-300'}">${currentShippingCost === 0 ? 'Gratis' : '+$' + currentShippingCost + ' MXN'}</span></div>
+                <div class="flex justify-between text-white font-black text-sm pt-1 border-t border-zinc-800/80"><span>Total Final a Pagar:</span><span class="text-emerald-400">$${finalCartTotal} MXN</span></div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+
+        html = html.replace(
+          /(<button[^>]*onclick="handleCustomerCheckout\(\)"[^>]*>)([\s\S]*?)(<\/button>)/,
+          shippingSelectorCartHTML + `$1🛍️ Realizar Pedido ${cartItemsSubtotal > 0 ? '($' + finalCartTotal + ' MXN)' : ''}$3`
+        );
+
+        // INYECTAR TABLA DE PRECIOS A DOMICILIO EN "⚙️ AJUSTES Y REPORTES"
+        const shippingSettingsCardHTML = `
+          <div class="bg-zinc-900 border border-pink-500/40 rounded-3xl p-5 space-y-4 shadow-xl my-6 text-white">
+            <div class="flex items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-lg font-black">🚚</div>
+                <div>
+                  <h3 class="font-black text-white text-base">Tabla de Tarifas y Zonas de Envío a Domicilio</h3>
+                  <p class="text-[11px] text-zinc-400">Estos precios se despliegan en el carrito del cliente para cobrarse junto con su pedido</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              ${zonesList.map(z => `
+                <div class="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="font-black text-white text-sm">${z.name}</span>
+                    ${z.isPickup ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black">Fijo • Gratis</span>` : ''}
+                  </div>
+                  <div class="flex items-center gap-2">
+                    ${z.isPickup ? `
+                      <span class="font-black text-emerald-400 text-sm px-3">$0 MXN</span>
+                    ` : `
+                      <div class="flex items-center bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5">
+                        <span class="text-zinc-400 font-bold mr-1">+$</span>
+                        <input type="number" min="0" value="${Number(z.price) || 0}" onchange="updateBoutiqueShippingZonePrice('${z.id}', this.value)" class="w-16 bg-transparent text-white font-black text-xs focus:outline-none text-right" />
+                        <span class="text-zinc-500 text-[10px] ml-1">MXN</span>
+                      </div>
+                      <button type="button" onclick="deleteBoutiqueShippingZone('${z.id}')" class="px-2.5 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/40 text-red-300 font-black text-xs transition" title="Eliminar zona">🗑️</button>
+                    `}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div class="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2.5">
+              <p class="text-[11px] font-black text-pink-400 uppercase tracking-wider">+ Agregar Nueva Zona o Colonia de Envío</p>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input id="rb-new-zone-name" type="text" placeholder="Ej. Zona Norte / Foráneo" class="sm:col-span-2 px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs font-bold focus:outline-none focus:border-pink-500" />
+                <div class="flex gap-2">
+                  <input id="rb-new-zone-price" type="number" min="0" placeholder="Costo $" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs font-bold focus:outline-none focus:border-pink-500" />
+                  <button type="button" onclick="addBoutiqueShippingZone()" class="px-4 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black text-xs shrink-0 shadow-lg transition">
+                    + Agregar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        if (html.includes('Guardar Ajustes')) {
+          html = html.replace(/(<button[^>]*>[\s\S]*?Guardar Ajustes[\s\S]*?<\/button>)/, shippingSettingsCardHTML + '$1');
+        }
+
+        // INYECTAR BOTÓN DE VER TICKET Y DESGLOSE DE ENVÍO EN "PEDIDOS WEB" (ADMIN) Y PERFIL
+        const pendingOrdersForBadges = normalizeFirebaseList(state.pendingWebOrders);
+        pendingOrdersForBadges.forEach(ord => {
+          if (!ord || !ord.id) return;
+          const meta = window.getOrderExtraMeta(ord.id);
+          const hasReceipt = Boolean(meta.receiptImage || ord.receiptImage);
+          const shipName = meta.shippingZoneName || ord.shippingZoneName || '🏢 Recoger en Boutique';
+          const shipCost = Number(meta.shippingCost ?? ord.shippingCost ?? 0);
+
+          const adminBadgeHTML = `
+            <div class="mt-2 p-2.5 rounded-xl bg-zinc-950 border ${hasReceipt ? 'border-emerald-500/50' : 'border-amber-500/30'} space-y-1.5 text-[11px]">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <span class="font-bold text-pink-400">${shipName} ${shipCost > 0 ? '(+$' + shipCost + ' MXN)' : '(Gratis)'}</span>
+                ${hasReceipt ? `
+                  <button type="button" onclick="openReceiptImagePreview('${ord.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] shadow flex items-center gap-1">
+                    🖼️ Ver Foto del Ticket
+                  </button>
+                ` : `
+                  <span class="text-[10px] text-amber-400 font-bold">⏳ Sin foto de ticket aún</span>
+                `}
+              </div>
+            </div>
+          `;
+          html = html.replace(ord.id, ord.id + adminBadgeHTML);
+        });
+      }
 
       window.irAlRastreadorCarrito = function (folio) {
         if (folio) {
@@ -3745,14 +4171,10 @@
           state.activeTrackingFolio = folio;
           try { window.localStorage.setItem('rb_boutique_active_folio', folio); } catch (e) {}
         }
-        setTimeout(() => {
-          state.whatsappCheckoutModal = null;
-          state.isBagOpen = true;
-          showToast('⏳ Monitoreando tu pedido en tiempo real...');
-          renderApp();
-        }, 350);
+        showToast(msg);
       };
 
+      // VENTANA PASO 1: DATOS DE PAGO + INSTRUCCIONES CLARAS + SUBIR FOTO DEL TICKET DIRECTO
       if (state.whatsappCheckoutModal) {
         const w = state.whatsappCheckoutModal;
         state.lastPaymentBackup = w;
@@ -3765,80 +4187,112 @@
         const oxxoHolder = state.storeConfig.oxxoAccountHolder || state.storeConfig.accountHolder || 'RB Boutique';
         const oxxoCard = state.storeConfig.oxxoCardNumber || state.storeConfig.cardNumber || '';
         const oxxoNote = state.storeConfig.oxxoNote || 'Dicta los 16 dígitos en caja de OXXO o 7-Eleven y conserva tu ticket impreso.';
-        const metodoTextoWA = payTab === 'oxxo' ? 'Depósito en OXXO / 7-Eleven' : 'Transferencia Bancaria';
+        const metodoTexto = payTab === 'oxxo' ? 'Depósito en OXXO / 7-Eleven' : 'Transferencia Bancaria';
+
+        const meta = window.getOrderExtraMeta(w.folio);
+        const shipZoneName = (w.calc && w.calc.shippingZoneName) || meta.shippingZoneName || window.getSelectedShippingZone().name;
+        const shipCost = Number((w.calc && w.calc.shippingCost) ?? meta.shippingCost ?? 0);
+        const itemsSub = Number((w.calc && w.calc.itemsSubtotal) ?? meta.itemsSubtotal ?? w.calc.requiredAdvance50);
+        const hasUploadedReceipt = Boolean(meta.receiptImage);
 
         html += `
-          <div class="fixed inset-0 z-[90] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 no-print">
-            <div class="bg-zinc-900 border border-emerald-500/40 rounded-3xl max-w-md w-full p-6 space-y-4 text-white animate-fade shadow-2xl relative">
+          <div class="fixed inset-0 z-[90] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 no-print overflow-y-auto">
+            <div class="bg-zinc-900 border border-emerald-500/40 rounded-3xl max-w-md w-full p-5 space-y-3.5 text-white animate-fade shadow-2xl relative my-auto">
               <div class="flex items-center justify-between gap-3">
                 <div class="flex items-center gap-3">
-                  <div class="w-11 h-11 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 font-black">✓</div>
+                  <div class="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 font-black">1</div>
                   <div>
-                    <span class="text-[10px] font-black text-emerald-400 uppercase">Paso 1 • Datos de Pago</span>
-                    <h4 class="font-black text-lg leading-tight">Folio: ${w.folio}</h4>
+                    <span class="text-[10px] font-black text-emerald-400 uppercase">Paso 1 • Realiza tu Pago y Sube tu Ticket</span>
+                    <h4 class="font-black text-base leading-tight">Folio: ${w.folio}</h4>
                   </div>
                 </div>
-                <button type="button" onclick="irAlRastreadorCarrito('${w.folio}')" class="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[11px] font-black text-pink-400 border border-pink-500/30">Minimizar ▾</button>
+                <button type="button" onclick="irAlRastreadorCarrito('${w.folio}')" class="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[11px] font-black text-pink-400 border border-pink-500/30">Ver Rastreo ▾</button>
               </div>
 
               <div class="grid grid-cols-2 gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 text-xs">
-                <button type="button" onclick="state.whatsappCheckoutModal.payTab='transfer'; renderApp();" class="py-2.5 px-2 rounded-xl font-black transition flex items-center justify-center gap-1.5 ${payTab === 'transfer' ? 'bg-pink-600 text-white shadow-md' : 'text-zinc-400 hover:text-white'}">
+                <button type="button" onclick="state.whatsappCheckoutModal.payTab='transfer'; renderApp();" class="py-2 px-2 rounded-xl font-black transition flex items-center justify-center gap-1.5 ${payTab === 'transfer' ? 'bg-pink-600 text-white shadow-md' : 'text-zinc-400 hover:text-white'}">
                   <span>🏦</span><span>Transferencia</span>
                 </button>
-                <button type="button" onclick="state.whatsappCheckoutModal.payTab='oxxo'; renderApp();" class="py-2.5 px-2 rounded-xl font-black transition flex items-center justify-center gap-1.5 ${payTab === 'oxxo' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'}">
+                <button type="button" onclick="state.whatsappCheckoutModal.payTab='oxxo'; renderApp();" class="py-2 px-2 rounded-xl font-black transition flex items-center justify-center gap-1.5 ${payTab === 'oxxo' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'}">
                   <span>🏪</span><span>OXXO / 7-Eleven</span>
                 </button>
               </div>
 
-              <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-3">
+              <!-- INDICACIONES CLARAS PARA EL CLIENTE -->
+              <div class="p-3 rounded-2xl bg-zinc-950/90 border border-zinc-800 text-[11px] space-y-1 text-zinc-300">
+                <p class="font-black text-white text-xs mb-1">📋 Indicaciones para completar tu pedido:</p>
                 ${payTab === 'transfer' ? `
-                  <p class="font-sans text-zinc-300 font-bold">Copia la CLABE para realizar tu transferencia (se abrirá el seguimiento en vivo):</p>
-                  <div class="bg-zinc-900 p-3.5 rounded-xl border border-pink-500/30 space-y-1.5">
+                  <p><strong>1.</strong> Copia la CLABE bancaria con el botón de abajo.</p>
+                  <p><strong>2.</strong> Transfiere el total exacto desde tu app bancaria y toma captura.</p>
+                  <p><strong>3.</strong> Toca el botón verde <strong>"📸 Subir Foto de mi Ticket / Captura"</strong> aquí abajo.</p>
+                ` : `
+                  <p><strong>1.</strong> Copia los 16 dígitos y acude a OXXO o 7-Eleven.</p>
+                  <p><strong>2.</strong> Realiza el depósito por el total exacto y pide tu ticket impreso.</p>
+                  <p><strong>3.</strong> Toca el botón verde <strong>"📸 Subir Foto de mi Ticket / Captura"</strong> aquí abajo.</p>
+                `}
+              </div>
+
+              <div class="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-2.5">
+                ${payTab === 'transfer' ? `
+                  <div class="bg-zinc-900 p-3 rounded-xl border border-pink-500/30 space-y-1.5">
                     <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Banco:</span><span class="font-black text-white text-sm">${state.storeConfig.bankName}</span></div>
                     <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Titular:</span><span class="text-white font-sans font-bold">${state.storeConfig.accountHolder}</span></div>
                     <div class="flex justify-between items-center pt-1 border-t border-zinc-800"><span class="text-zinc-400">CLABE:</span><span class="font-black text-pink-400 text-sm">${state.storeConfig.clabe}</span></div>
                     ${state.storeConfig.cardNumber ? `<div class="flex justify-between items-center"><span class="text-zinc-400">Tarjeta:</span><span class="font-bold text-zinc-200">${state.storeConfig.cardNumber}</span></div>` : ''}
-                    <button type="button" onclick="copiarYMinimizarPago('${state.storeConfig.clabe}', '📋 CLABE copiada • Seguimiento activado', '${w.folio}')" class="mt-2 w-full py-2.5 bg-pink-600 hover:bg-pink-500 rounded-xl font-sans font-black text-white shadow-lg transition">📋 Copiar CLABE y Ver Seguimiento</button>
+                    <button type="button" onclick="copiarYMinimizarPago('${state.storeConfig.clabe}', '📋 CLABE copiada al portapapeles', '${w.folio}')" class="mt-1.5 w-full py-2 bg-pink-600 hover:bg-pink-500 rounded-xl font-sans font-black text-white shadow transition">📋 Copiar CLABE</button>
                   </div>
                 ` : `
-                  <p class="font-sans text-amber-300 font-bold">Copia los 16 dígitos para depositar en OXXO o 7-Eleven (se abrirá el seguimiento en vivo):</p>
-                  <div class="bg-zinc-900 p-3.5 rounded-xl border border-amber-500/40 space-y-2">
+                  <div class="bg-zinc-900 p-3 rounded-xl border border-amber-500/40 space-y-2">
                     <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Banco Receptor:</span><span class="font-black text-white text-sm">${oxxoBank}</span></div>
                     <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Beneficiario:</span><span class="text-white font-sans font-bold">${oxxoHolder}</span></div>
-                    <div class="p-2.5 rounded-xl bg-zinc-950 border border-amber-500/40 text-center space-y-0.5">
-                      <span class="text-[9px] font-sans font-bold text-amber-300 uppercase block">Dicta estos 16 dígitos al cajero</span>
+                    <div class="p-2 rounded-xl bg-zinc-950 border border-amber-500/40 text-center">
+                      <span class="text-[9px] font-sans font-bold text-amber-300 uppercase block">Dicta estos 16 dígitos en caja</span>
                       <span class="font-black text-amber-400 text-base tracking-wider block">${oxxoCard}</span>
                     </div>
-                    <p class="font-sans text-[11px] text-zinc-400 leading-snug">💡 ${oxxoNote}</p>
-                    <button type="button" onclick="copiarYMinimizarPago('${oxxoCard}', '📋 Tarjeta OXXO copiada • Seguimiento activado', '${w.folio}')" class="w-full py-2.5 bg-amber-500 hover:bg-amber-400 rounded-xl font-sans font-black text-black shadow-lg transition">📋 Copiar 16 Dígitos y Ver Seguimiento</button>
+                    <p class="font-sans text-[10px] text-zinc-400 leading-snug">💡 ${oxxoNote}</p>
+                    <button type="button" onclick="copiarYMinimizarPago('${oxxoCard}', '📋 16 dígitos copiados al portapapeles', '${w.folio}')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 rounded-xl font-sans font-black text-black shadow transition">📋 Copiar 16 Dígitos</button>
                   </div>
                 `}
 
-                <div class="bg-zinc-900 px-3.5 py-2.5 rounded-xl flex justify-between items-center border border-zinc-800">
-                  <span class="font-sans font-bold text-zinc-300">${payTab === 'oxxo' ? 'Total a Depositar:' : 'Total a Transferir:'}</span>
-                  <span class="text-lg font-black text-emerald-400">$${w.calc.requiredAdvance50} MXN</span>
+                <div class="bg-zinc-900 px-3 py-2.5 rounded-xl border border-zinc-800 font-sans space-y-1">
+                  ${shipCost > 0 ? `
+                    <div class="flex justify-between text-[11px] text-zinc-400"><span>Prendas:</span><span>$${itemsSub} MXN</span></div>
+                    <div class="flex justify-between text-[11px] text-pink-400 font-bold"><span>${shipZoneName}:</span><span>+$${shipCost} MXN</span></div>
+                  ` : `
+                    <div class="flex justify-between text-[11px] text-emerald-400 font-bold"><span>Entrega:</span><span>${shipZoneName} (Gratis)</span></div>
+                  `}
+                  <div class="flex justify-between items-center pt-1 border-t border-zinc-800">
+                    <span class="font-bold text-zinc-200">${payTab === 'oxxo' ? 'Total a Depositar:' : 'Total a Transferir:'}</span>
+                    <span class="text-lg font-black text-emerald-400">$${w.calc.requiredAdvance50} MXN</span>
+                  </div>
                 </div>
               </div>
 
-              <div class="flex gap-2 pt-1">
-                <button type="button" onclick="irAlRastreadorCarrito('${w.folio}')" class="w-1/3 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-black text-xs">Ver Mi Carrito</button>
-                <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=${encodeURIComponent(`Hola RB Boutique! Acabo de realizar mi pedido con Folio ${w.folio} por $${w.calc.requiredAdvance50} MXN mediante ${metodoTextoWA}. Envío mi comprobante:`)}" target="_blank" class="w-2/3 py-3.5 rounded-xl bg-[#25D366] text-white font-black text-xs text-center flex items-center justify-center shadow-lg">📲 Enviar Comprobante</a>
+              <!-- SUBIDA DIRECTA DE FOTO DEL TICKET AL SISTEMA -->
+              <div class="space-y-2 pt-1">
+                <label class="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs text-center flex items-center justify-center gap-2 shadow-xl cursor-pointer transition">
+                  <span>📸</span>
+                  <span>${hasUploadedReceipt ? 'Cambiar Foto de mi Ticket / Captura' : 'Subir Foto de mi Ticket / Captura Aquí'}</span>
+                  <input type="file" accept="image/*" class="hidden" onchange="handleClientReceiptUpload(this, '${w.folio}', '${metodoTexto}')" />
+                </label>
+                <button type="button" onclick="irAlRastreadorCarrito('${w.folio}')" class="w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs">
+                  Ver Seguimiento en Mi Carrito
+                </button>
               </div>
             </div>
           </div>
         `;
       }
 
-      // RASTREADOR EN TIEMPO REAL ESTILO MERCADO PAGO (VISIBLE PARA TODOS Y BÚSQUEDA ESTRICTA)
+      // RASTREADOR EN TIEMPO REAL ESTILO MERCADO PAGO (CON CARGA DE TICKET EN PASO 1 Y WHATSAPP EN PASO 3)
       {
         const savedFolio = state.activeTrackingFolio || (() => { try { return window.localStorage.getItem('rb_boutique_active_folio'); } catch (e) { return null; } })();
         const pendingList = normalizeFirebaseList(state.pendingWebOrders);
         const completedList = state.salesHistory || [];
-        
+
         let trackedOrder = null;
         let currentStep = 0;
 
-        // BÚSQUEDA ESTRICTA: Solo busca el folio activo exacto generado en esta sesión
         if (savedFolio) {
           const inPending = pendingList.find(o => o && o.id === savedFolio);
           const inSales = completedList.find(o => o && o.id === savedFolio && !String(o.status).includes('Devuelto'));
@@ -3852,18 +4306,36 @@
         }
 
         if (trackedOrder) {
+          const meta = window.getOrderExtraMeta(trackedOrder.id);
+          const hasReceipt = Boolean(meta.receiptImage || trackedOrder.receiptImage);
+          const shipName = meta.shippingZoneName || trackedOrder.shippingZoneName || '🏢 Recoger en Boutique';
+          const shipCost = Number(meta.shippingCost ?? trackedOrder.shippingCost ?? 0);
+          const displayTotal = meta.totalWithShipping || trackedOrder.total;
+
           const stepColor = currentStep === 3 ? '#10b981' : currentStep === 2 ? '#f59e0b' : '#009ee3';
           const progressWidth = currentStep === 3 ? '100%' : currentStep === 2 ? '66%' : '34%';
           const stepTitle = currentStep === 1
-            ? 'Confirmando tu pago...'
+            ? (hasReceipt ? 'Comprobante recibido • Validando pago...' : 'Confirmando tu pago...')
             : currentStep === 2
               ? '¡Tu pedido se está surtiendo!'
               : '¡Tu pedido está listo para entrega!';
           const stepSubtitle = currentStep === 1
-            ? 'Pronto te avisaremos sobre tu pedido en cuanto verifiquemos tu pago.'
+            ? (hasReceipt
+                ? 'Ya recibimos la foto de tu ticket en el sistema. En breve pasaremos tu pedido a surtido.'
+                : 'Realiza tu pago y sube aquí mismo la foto de tu ticket o captura para comenzar a surtir.')
             : currentStep === 2
               ? 'Pago verificado. Estamos preparando y empaquetando tus prendas en boutique.'
-              : 'Próximo: Tu pedido fue surtido y confirmado en caja. ¡Listo para entregarse!';
+              : 'Tu pago fue validado y tu pedido ya fue confirmado en caja.';
+
+          const whatsappDeliveryMsg = encodeURIComponent(
+            `¡Hola RB Boutique! 👋 Mi pedido con Folio *${trackedOrder.id}* (${(trackedOrder.itemsList || []).map(it => it.qty + 'x ' + it.name).join(', ')}) con modalidad *${shipName}* por *$${displayTotal} MXN* ya me aparece como *¡Listo para entrega!* 🎉. Te escribo para ponernos de acuerdo con mi pedido:`
+          );
+
+          const whatsappOfficialLogoSVG = `
+            <svg class="w-5 h-5 fill-current shrink-0" viewBox="0 0 24 24">
+              <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.1.824zm-3.423-14.416c-6.627 0-12 5.373-12 12 0 2.625.846 5.059 2.284 7.033l-1.492 4.444 4.597-1.469c1.914 1.261 4.205 1.992 6.611 1.992 6.627 0 12-5.373 12-12s-5.373-12-12-12z"/>
+            </svg>
+          `;
 
           const mpTrackerCardHTML = `
             <div class="p-5 rounded-3xl border shadow-xl space-y-4 relative overflow-hidden text-white my-3" style="background: linear-gradient(145deg, ${stepColor}28 0%, #09090b 88%); border-color: ${stepColor}77;">
@@ -3897,28 +4369,69 @@
               </div>
 
               <div class="p-3.5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-2.5 text-xs">
-                <div class="flex items-center gap-2.5">
-                  <span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${currentStep > 1 ? 'bg-emerald-500 text-black' : 'bg-sky-500 text-white animate-pulse'}">${currentStep > 1 ? '✓' : '1'}</span>
-                  <div><p class="font-black text-white">Confirmando tu pago</p><p class="text-[10px] text-zinc-400">${currentStep === 1 ? 'Pronto te avisaremos sobre tu pedido' : 'Pago verificado ✅'}</p></div>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2.5">
+                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${currentStep > 1 ? 'bg-emerald-500 text-black' : 'bg-sky-500 text-white animate-pulse'}">${currentStep > 1 ? '✓' : '1'}</span>
+                    <div>
+                      <p class="font-black text-white">Confirmando tu pago</p>
+                      <p class="text-[10px] text-zinc-400">${currentStep === 1 ? (hasReceipt ? 'Foto de ticket recibida en sistema ✅' : 'Sube la foto de tu ticket abajo') : 'Pago verificado ✅'}</p>
+                    </div>
+                  </div>
+                  ${hasReceipt ? `
+                    <button type="button" onclick="openReceiptImagePreview('${trackedOrder.id}')" class="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-emerald-400 font-black text-[10px] border border-emerald-500/30 shrink-0">
+                      🖼️ Ver Mi Ticket
+                    </button>
+                  ` : ''}
                 </div>
+
                 <div class="flex items-center gap-2.5">
                   <span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${currentStep > 2 ? 'bg-emerald-500 text-black' : currentStep === 2 ? 'bg-amber-500 text-black animate-bounce' : 'bg-zinc-800 text-zinc-500'}">${currentStep > 2 ? '✓' : '2'}</span>
                   <div><p class="font-black ${currentStep >= 2 ? 'text-white' : 'text-zinc-500'}">Tu pedido se está surtiendo</p><p class="text-[10px] text-zinc-400">${currentStep === 2 ? 'Preparando tus prendas en boutique 📦' : currentStep > 2 ? 'Pedido surtido ✅' : 'Se activará al verificar tu pago'}</p></div>
                 </div>
+
                 <div class="flex items-center gap-2.5">
                   <span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${currentStep === 3 ? 'bg-emerald-500 text-black animate-pulse' : 'bg-zinc-800 text-zinc-500'}">${currentStep === 3 ? '✓' : '3'}</span>
-                  <div><p class="font-black ${currentStep === 3 ? 'text-emerald-400' : 'text-zinc-500'}">Próximo: Tu pedido está listo para entrega</p><p class="text-[10px] text-zinc-400">${currentStep === 3 ? '¡Confirmado en caja y listo para entrega! 🎉' : 'Se confirmará al terminar el surtido en caja'}</p></div>
+                  <div><p class="font-black ${currentStep === 3 ? 'text-emerald-400' : 'text-zinc-500'}">¡Tu pedido está listo para entrega!</p><p class="text-[10px] text-zinc-400">${currentStep === 3 ? '¡Confirmado en caja y listo! 🎉' : 'Se confirmará al terminar el surtido en caja'}</p></div>
                 </div>
               </div>
 
-              <div class="flex items-center justify-between text-xs pt-1 border-t border-white/10">
-                <span class="text-zinc-300 font-bold">${(trackedOrder.itemsList || []).map(it => it.qty + 'x ' + it.name + ' (' + it.size + ')').join(', ')}</span>
-                <strong class="text-emerald-400 font-black text-sm shrink-0 ml-2">$${trackedOrder.total} MXN</strong>
+              <div class="p-3 rounded-2xl bg-zinc-950/70 border border-white/10 text-xs space-y-1">
+                <div class="flex items-center justify-between text-[11px] text-pink-400 font-bold">
+                  <span>Modalidad de Entrega:</span>
+                  <span>${shipName} ${shipCost > 0 ? '(+$' + shipCost + ' MXN)' : '(Gratis)'}</span>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-white/10">
+                  <span class="text-zinc-300 font-bold">${(trackedOrder.itemsList || []).map(it => it.qty + 'x ' + it.name + ' (' + it.size + ')').join(', ')}</span>
+                  <strong class="text-emerald-400 font-black text-sm shrink-0 ml-2">$${displayTotal} MXN</strong>
+                </div>
               </div>
+
+              ${currentStep === 1 ? `
+                <div class="pt-1">
+                  <label class="w-full py-3 px-4 rounded-2xl ${hasReceipt ? 'bg-zinc-800 hover:bg-zinc-700 border border-emerald-500/40 text-emerald-400' : 'bg-emerald-600 hover:bg-emerald-500 text-white'} font-black text-xs text-center flex items-center justify-center gap-2 shadow-lg cursor-pointer transition">
+                    <span>📸</span>
+                    <span>${hasReceipt ? 'Comprobante Adjunto • Toca si deseas cambiar la foto' : 'Subir Foto de mi Ticket / Captura Aquí'}</span>
+                    <input type="file" accept="image/*" class="hidden" onchange="handleClientReceiptUpload(this, '${trackedOrder.id}', 'Comprobante desde Rastreador')" />
+                  </label>
+                </div>
+              ` : ''}
+
+              ${currentStep === 3 ? `
+                <!-- BLOQUE EXCLUSIVO DEL PASO 3: FRASE + BOTÓN CON LOGO DE WHATSAPP -->
+                <div class="p-4 rounded-2xl bg-emerald-950/60 border-2 border-emerald-500/60 space-y-3 text-center shadow-lg">
+                  <p class="text-xs font-black text-white leading-snug">
+                    📍 Contáctanos para ponernos de acuerdo con tu pedido:
+                  </p>
+                  <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=${whatsappDeliveryMsg}" target="_blank" class="w-full py-3.5 px-4 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-xl transition transform hover:scale-[1.01]">
+                    ${whatsappOfficialLogoSVG}
+                    <span>Contáctanos por WhatsApp</span>
+                  </a>
+                </div>
+              ` : ''}
             </div>
           `;
 
-          // INYECTAR EN "MIS COMPRAS Y APARTADOS"
+          // INYECTAR EN "MIS COMPRAS Y APARTADOS" DEL PERFIL DEL CLIENTE
           html = html.replace(/(Mis Compras y Apartados<\/h3>)/, '$1' + mpTrackerCardHTML);
 
           // RASTREADOR DESPLEGADO AL ABRIR "MI CARRITO"
@@ -3951,17 +4464,18 @@
 
                   <div class="p-4 border-t border-zinc-800 bg-zinc-900/95 space-y-2">
                     ${currentStep === 3 ? `
-                      <button type="button" onclick="state.activeTrackingFolio=null; try{window.localStorage.removeItem('rb_boutique_active_folio');}catch(e){} state.isBagOpen=false; renderApp();" class="w-full py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-lg transition">
-                        ✓ Cerrar Ventana y Finalizar
+                      <button type="button" onclick="state.activeTrackingFolio=null; try{window.localStorage.removeItem('rb_boutique_active_folio');}catch(e){} state.isBagOpen=false; renderApp();" class="w-full py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-black text-xs transition">
+                        ✓ Cerrar y Finalizar Seguimiento
                       </button>
                     ` : `
                       <div class="grid grid-cols-2 gap-2">
-                        <button type="button" onclick="state.isBagOpen=false; state.whatsappCheckoutModal = state.lastPaymentBackup || { folio: '${trackedOrder.id}', calc: { requiredAdvance50: '${trackedOrder.total}' }, items: [] }; renderApp();" class="py-3 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-[11px] flex items-center justify-center gap-1.5">
-                          🏦 Ver Datos de Pago
+                        <button type="button" onclick="state.isBagOpen=false; state.whatsappCheckoutModal = state.lastPaymentBackup || { folio: '${trackedOrder.id}', calc: { requiredAdvance50: '${displayTotal}', shippingZoneName: '${shipName}', shippingCost: ${shipCost} }, items: [] }; renderApp();" class="py-3 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-[11px] flex items-center justify-center gap-1.5">
+                          🏦 Ver CLABE / Datos
                         </button>
-                        <a href="https://wa.me/${state.storeConfig.whatsappNumber}?text=${encodeURIComponent(`Hola RB Boutique! Envío el comprobante de mi pedido con Folio ${trackedOrder.id} por $${trackedOrder.total} MXN:`)}" target="_blank" class="py-3 px-3 rounded-xl bg-[#25D366] text-white font-black text-[11px] flex items-center justify-center gap-1.5 shadow-lg">
-                          📲 Enviar Comprobante
-                        </a>
+                        <label class="py-3 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] flex items-center justify-center gap-1.5 shadow-lg cursor-pointer">
+                          <span>📸 ${hasReceipt ? 'Cambiar Ticket' : 'Subir Ticket'}</span>
+                          <input type="file" accept="image/*" class="hidden" onchange="handleClientReceiptUpload(this, '${trackedOrder.id}', 'Comprobante desde Carrito')" />
+                        </label>
                       </div>
                       <button type="button" onclick="state.isBagOpen=false; renderApp();" class="w-full py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white font-bold text-xs">
                         Minimizar (el rastreo sigue activo)
