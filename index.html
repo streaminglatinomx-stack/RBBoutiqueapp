@@ -4156,119 +4156,296 @@
         }
 
         // INYECTAR BOTÓN DE VER TICKET Y DESGLOSE DE ENVÍO EN "PEDIDOS WEB" (ADMIN) Y PERFIL
+        window.resolveOrderReceiptData = function (folio, ordObj) {
+          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+          const foundOrd = ordObj || pendingList.find(o => o && (String(o.id) === String(folio) || String(o.folio) === String(folio))) || {};
+          const realId = String(foundOrd.id || folio || '');
+          const custKey = 'CUST_' + String(foundOrd.customer || foundOrd.clientName || foundOrd.userName || '').trim().toLowerCase();
+
+          let metaMap = (state.storeConfig && state.storeConfig.ordersExtraMeta) || {};
+          try {
+            const localMeta = JSON.parse(window.localStorage.getItem('rb_boutique_orders_meta') || '{}');
+            metaMap = { ...localMeta, ...metaMap };
+          } catch (e) {}
+
+          const byFolio = metaMap[realId] || metaMap[folio] || {};
+          const byCust = custKey !== 'CUST_' ? (metaMap[custKey] || {}) : {};
+          let lastGlobal = (state.storeConfig && state.storeConfig.lastUploadedReceipt) || null;
+          if (!lastGlobal) {
+            try { lastGlobal = JSON.parse(window.localStorage.getItem('rb_boutique_last_receipt') || 'null'); } catch (e) {}
+          }
+
+          const imgSrc =
+            foundOrd.receiptImage ||
+            byFolio.receiptImage ||
+            byCust.receiptImage ||
+            (lastGlobal && (String(lastGlobal.folio) === realId || pendingList.length === 1) ? lastGlobal.receiptImage : '') ||
+            '';
+
+          const uploadedAt =
+            foundOrd.receiptUploadedAt ||
+            byFolio.receiptUploadedAt ||
+            byCust.receiptUploadedAt ||
+            (lastGlobal && lastGlobal.receiptUploadedAt) ||
+            '';
+
+          const shippingZoneName =
+            foundOrd.shippingZoneName ||
+            byFolio.shippingZoneName ||
+            byCust.shippingZoneName ||
+            '🏢 Recoger en Boutique';
+
+          const shippingCost = Number(
+            foundOrd.shippingCost ??
+            byFolio.shippingCost ??
+            byCust.shippingCost ??
+            0
+          );
+
+          const paymentMethodChoice =
+            foundOrd.paymentMethodChoice ||
+            byFolio.paymentMethodChoice ||
+            byCust.paymentMethodChoice ||
+            'Transferencia / Depósito';
+
+          return {
+            receiptImage: imgSrc,
+            receiptUploadedAt: uploadedAt,
+            shippingZoneName,
+            shippingCost,
+            paymentMethodChoice,
+            totalWithShipping: foundOrd.total || byFolio.totalWithShipping || 0
+          };
+        };
+
+        window.getOrderExtraMeta = function (folio) {
+          return window.resolveOrderReceiptData(folio, null);
+        };
+
         window.saveOrderExtraMeta = function (folio, dataObj) {
-          if (!folio) return;
           if (!state.storeConfig) state.storeConfig = {};
           if (!state.storeConfig.ordersExtraMeta || typeof state.storeConfig.ordersExtraMeta !== 'object') {
             state.storeConfig.ordersExtraMeta = {};
           }
-          const current = window.getOrderExtraMeta(folio);
-          const merged = { ...current, ...dataObj, updatedAt: Date.now() };
-          state.storeConfig.ordersExtraMeta[folio] = merged;
+
+          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+          let targetOrder = pendingList.find(o => o && (String(o.id) === String(folio) || String(o.folio) === String(folio)));
+          if (!targetOrder && pendingList.length > 0) {
+            targetOrder = pendingList[pendingList.length - 1];
+          }
+
+          const realFolio = String((targetOrder && targetOrder.id) || folio || 'ORDER');
+          const current = state.storeConfig.ordersExtraMeta[realFolio] || {};
+          const merged = { ...current, ...dataObj, folio: realFolio, updatedAt: Date.now() };
+
+          state.storeConfig.ordersExtraMeta[realFolio] = merged;
+          if (folio && String(folio) !== realFolio) {
+            state.storeConfig.ordersExtraMeta[String(folio)] = merged;
+          }
+
+          if (targetOrder) {
+            Object.assign(targetOrder, merged);
+            const custName = String(targetOrder.customer || targetOrder.clientName || targetOrder.userName || '').trim().toLowerCase();
+            if (custName) {
+              state.storeConfig.ordersExtraMeta['CUST_' + custName] = merged;
+            }
+          }
+
+          if (dataObj && dataObj.receiptImage) {
+            state.storeConfig.lastUploadedReceipt = merged;
+            try { window.localStorage.setItem('rb_boutique_last_receipt', JSON.stringify(merged)); } catch (e) {}
+          }
 
           try {
             window.localStorage.setItem('rb_boutique_orders_meta', JSON.stringify(state.storeConfig.ordersExtraMeta));
           } catch (e) {}
 
-          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
-          let updatedPending = false;
-          pendingList.forEach(o => {
-            if (o && String(o.id) === String(folio)) {
-              Object.assign(o, merged);
-              updatedPending = true;
+          // Sincronizar con la llave exacta de pendingWebOrders en el código fuente y en localStorage
+          state.pendingWebOrders = pendingList;
+          const pendingKeys = new Set(['rb_boutique_pending_orders', 'rb_boutique_web_orders']);
+          try {
+            const allScripts = Array.from(document.scripts || []).map(s => s.textContent || '').join('\n');
+            const matches = allScripts.match(/saveStored\(\s*['"]([^'"]+)['"]\s*,\s*state\.pendingWebOrders/g) || [];
+            matches.forEach(m => {
+              const k = m.match(/['"]([^'"]+)['"]/);
+              if (k && k[1]) pendingKeys.add(k[1]);
+            });
+            for (let i = 0; i < window.localStorage.length; i++) {
+              const lk = window.localStorage.key(i);
+              const lv = window.localStorage.getItem(lk) || '';
+              if (lk && lv.includes(realFolio) && lv.startsWith('[')) {
+                pendingKeys.add(lk);
+              }
             }
-          });
+          } catch (e) {}
 
-          if (updatedPending) {
-            state.pendingWebOrders = pendingList;
-            // Detectar la llave exacta que usa tu app para guardar pendingWebOrders en Firebase
-            try {
-              const checkoutSrc = typeof window.handleCustomerCheckout === 'function' ? window.handleCustomerCheckout.toString() : '';
-              const keyMatches = checkoutSrc.match(/saveStored\(\s*['"]([^'"]+)['"]/g) || [];
-              keyMatches.forEach(m => {
-                const k = m.replace(/saveStored\(\s*['"]|['"]$/g, '');
-                if (k && /(pending|web|order|pedido)/i.test(k)) {
-                  saveStored(k, state.pendingWebOrders);
-                }
+          pendingKeys.forEach(k => {
+            try { saveStored(k, state.pendingWebOrders); } catch (e) {}
+          });
+          saveStored('rb_boutique_config', state.storeConfig);
+        };
+
+        window.handleClientReceiptUpload = function (inputEl, folio, paymentMethodLabel) {
+          const file = inputEl && inputEl.files && inputEl.files[0];
+          if (!file) return;
+          showToast('⏳ Subiendo foto de tu comprobante...');
+
+          const reader = new FileReader();
+          reader.onload = function (evt) {
+            const img = new Image();
+            img.onload = function () {
+              const canvas = document.createElement('canvas');
+              const MAX_DIM = 620;
+              let w = img.width;
+              let h = img.height;
+              if (w > h && w > MAX_DIM) {
+                h = Math.round((h * MAX_DIM) / w);
+                w = MAX_DIM;
+              } else if (h > MAX_DIM) {
+                w = Math.round((w * MAX_DIM) / h);
+                h = MAX_DIM;
+              }
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, w, h);
+              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.62);
+              const timeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+              const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+              const fallbackFolio = (pendingList.length > 0 && pendingList[pendingList.length - 1].id) || folio;
+              const finalFolio = (!folio || folio === 'undefined') ? fallbackFolio : folio;
+
+              window.saveOrderExtraMeta(finalFolio, {
+                receiptImage: compressedDataUrl,
+                receiptUploadedAt: timeStr,
+                paymentMethodChoice: paymentMethodLabel || 'Transferencia / Depósito'
               });
-            } catch (e) {}
-            saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+
+              state.activeTrackingFolio = finalFolio;
+              try { window.localStorage.setItem('rb_boutique_active_folio', finalFolio); } catch (e) {}
+              state.whatsappCheckoutModal = null;
+              state.isBagOpen = true;
+              showToast('✅ ¡Comprobante recibido! Ya es visible en Pedidos Web.');
+              renderApp();
+              setTimeout(window.injectWebOrdersReceiptBadges, 50);
+            };
+            img.src = evt.target.result;
+          };
+          reader.readAsDataURL(file);
+        };
+
+        window.openReceiptImagePreview = function (folio) {
+          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+          const foundOrder = pendingList.find(o => o && (String(o.id) === String(folio) || String(o.folio) === String(folio))) ||
+                             (state.salesHistory || []).find(o => o && String(o.id) === String(folio)) || {};
+          const resolved = window.resolveOrderReceiptData(folio, foundOrder);
+          const imgSrc = resolved.receiptImage;
+
+          if (!imgSrc) {
+            showToast('⚠️ Este pedido aún no tiene foto de comprobante adjunta.');
+            return;
           }
 
-          saveStored('rb_boutique_config', state.storeConfig);
+          let viewer = document.getElementById('rb-receipt-viewer-modal');
+          if (!viewer) {
+            viewer = document.createElement('div');
+            viewer.id = 'rb-receipt-viewer-modal';
+            viewer.className = 'fixed inset-0 z-[120] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print';
+            document.body.appendChild(viewer);
+          }
+
+          viewer.innerHTML = `
+            <div class="bg-zinc-900 border-2 border-emerald-500/50 rounded-3xl max-w-md w-full p-5 space-y-4 text-white shadow-2xl animate-fade">
+              <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div>
+                  <span class="text-[10px] font-black uppercase text-emerald-400">Comprobante de Pago • Folio ${folio}</span>
+                  <h4 class="font-black text-base text-white">${foundOrder.customer || 'Cliente Web'}</h4>
+                </div>
+                <button type="button" onclick="document.getElementById('rb-receipt-viewer-modal').remove()" class="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-black flex items-center justify-center">✕</button>
+              </div>
+
+              <div class="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs space-y-1">
+                <div class="flex justify-between"><span class="text-zinc-400">Método de Pago:</span><strong class="text-white">${resolved.paymentMethodChoice}</strong></div>
+                <div class="flex justify-between"><span class="text-zinc-400">Entrega elegida:</span><strong class="text-pink-400">${resolved.shippingZoneName} ${resolved.shippingCost > 0 ? '(+$' + resolved.shippingCost + ')' : '(Gratis)'}</strong></div>
+                <div class="flex justify-between pt-1 border-t border-zinc-800"><span class="text-zinc-400 font-bold">Total del Pedido:</span><strong class="text-emerald-400 text-sm font-black">$${resolved.totalWithShipping || foundOrder.total || 0} MXN</strong></div>
+                ${resolved.receiptUploadedAt ? `<div class="text-[10px] text-zinc-500 text-right">Subido a las ${resolved.receiptUploadedAt}</div>` : ''}
+              </div>
+
+              <div class="bg-black rounded-2xl p-2 border border-zinc-800 max-h-[55vh] overflow-y-auto flex items-center justify-center">
+                <img src="${imgSrc}" alt="Ticket de pago ${folio}" class="max-w-full rounded-xl object-contain" />
+              </div>
+
+              <button type="button" onclick="document.getElementById('rb-receipt-viewer-modal').remove()" class="w-full py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-white font-black text-xs">
+                Cerrar Vista de Comprobante
+              </button>
+            </div>
+          `;
         };
 
         window.injectWebOrdersReceiptBadges = function () {
           const pendingOrders = normalizeFirebaseList(state.pendingWebOrders);
           if (!Array.isArray(pendingOrders) || pendingOrders.length === 0) return;
 
-          pendingOrders.forEach((ord, idx) => {
+          pendingOrders.forEach(ord => {
             if (!ord || !ord.id) return;
             const folio = String(ord.id);
-            const meta = window.getOrderExtraMeta(folio);
-            const imgSrc = meta.receiptImage || ord.receiptImage || '';
+            const custName = String(ord.customer || ord.clientName || ord.userName || '').trim();
+            const resolved = window.resolveOrderReceiptData(folio, ord);
+            const imgSrc = resolved.receiptImage;
             const hasReceipt = Boolean(imgSrc);
-            const shipName = meta.shippingZoneName || ord.shippingZoneName || '🏢 Recoger en Boutique';
-            const shipCost = Number(meta.shippingCost ?? ord.shippingCost ?? 0);
-            const uploadedAt = meta.receiptUploadedAt || ord.receiptUploadedAt || '';
+            const shipName = resolved.shippingZoneName;
+            const shipCost = resolved.shippingCost;
+            const uploadedAt = resolved.receiptUploadedAt;
 
-            // Buscar todas las tarjetas donde aparece este pedido (en Pedidos Web y en Perfil)
             const candidateCards = new Set();
 
-            // 1. Por botones con onclick que contengan el folio o el índice en Pedidos Web
+            // 1. Subir siempre desde el parentElement (para nunca atrapar el <button> mismo)
             document.querySelectorAll(`[onclick*="${folio}"]`).forEach(el => {
-              if (el.closest('#rb-receipt-viewer-modal') || el.closest('.mp-pulse')) return;
-              if (el.id && el.id.startsWith('rb-')) return;
-              const card = el.closest('.bg-zinc-950, .bg-zinc-900, .rounded-2xl, .rounded-3xl');
+              if (el.closest('#rb-receipt-viewer-modal') || el.closest('.mp-pulse') || el.closest('.rb-order-receipt-badge')) return;
+              const parent = el.parentElement;
+              if (!parent) return;
+              const card = parent.closest('div.bg-zinc-950, div.bg-zinc-900, div.rounded-2xl, div.rounded-3xl');
               if (card && !card.querySelector('.mp-pulse')) candidateCards.add(card);
             });
 
-            // 2. Por texto visible que contenga el Folio o dentro del panel "Pedidos Web"
-            document.querySelectorAll('span, strong, b, h4, h5, p, div').forEach(el => {
-              if (el.children.length > 2) return;
-              if (el.closest('#rb-receipt-viewer-modal') || el.closest('.mp-pulse')) return;
-              const txt = (el.innerText || el.textContent || '').trim();
-              if (txt.includes(folio)) {
-                const card = el.closest('.bg-zinc-950, .bg-zinc-900, .rounded-2xl, .rounded-3xl');
-                if (card && !card.querySelector('.mp-pulse')) candidateCards.add(card);
-              }
-            });
-
-            // 3. Por contenedor de "Pedidos Web" si las tarjetas no muestran el ID en texto
+            // 2. Buscar tarjetas dentro del panel "Pedidos Web" que coincidan con el Folio o con el nombre del comprador
             document.querySelectorAll('h2, h3, h4').forEach(h => {
               const hTxt = (h.innerText || h.textContent || '').toLowerCase();
               if (hTxt.includes('pedidos web') || hTxt.includes('pedidos en línea') || hTxt.includes('pedidos en linea')) {
-                const panel = h.closest('.bg-zinc-900, .rounded-3xl') || h.parentElement;
-                if (panel) {
-                  const cards = Array.from(panel.querySelectorAll('.bg-zinc-950.border, .bg-zinc-900.border')).filter(
-                    c => !c.id.startsWith('rb-admin-receipt-') && (c.innerText || '').includes('$')
-                  );
-                  if (cards[idx]) candidateCards.add(cards[idx]);
-                }
+                const panel = (h.parentElement && h.parentElement.closest('div.bg-zinc-900, div.rounded-3xl')) || h.parentElement;
+                if (!panel) return;
+                const allDivCards = Array.from(panel.querySelectorAll('div.bg-zinc-950, div.bg-zinc-900')).filter(
+                  d => !d.classList.contains('rb-order-receipt-badge') && !d.querySelector('.mp-pulse')
+                );
+                allDivCards.forEach(d => {
+                  const t = d.innerText || '';
+                  if (t.includes(folio) || (custName.length > 2 && t.includes(custName))) {
+                    candidateCards.add(d);
+                  }
+                });
               }
             });
 
-            candidateCards.forEach((card, cIdx) => {
-              // Evitar contenedores padres gigantes que agrupan varios pedidos a la vez
-              const cardText = card.innerText || '';
-              const otherFoliosCount = pendingOrders.filter(o => o && o.id && cardText.includes(String(o.id))).length;
-              if (otherFoliosCount > 1) return;
+            candidateCards.forEach(card => {
+              // Evitar contenedores padres que envuelven más de un pedido diferente
+              const cardHtml = card.innerHTML || '';
+              const matchedOrdersInside = pendingOrders.filter(o => o && o.id && cardHtml.includes(String(o.id))).length;
+              if (matchedOrdersInside > 1) return;
 
-              const badgeId = `rb-admin-receipt-${folio}-${cIdx}`;
-              let badgeEl = card.querySelector(`[data-rb-receipt-folio="${folio}"]`);
-              const stateSignature = `${hasReceipt ? '1' : '0'}_${shipName}_${shipCost}`;
+              let badgeEl = card.querySelector('.rb-order-receipt-badge');
+              const stateSignature = `${folio}_${hasReceipt ? '1' : '0'}_${shipName}_${shipCost}`;
 
               if (badgeEl && badgeEl.getAttribute('data-rb-sig') === stateSignature) return;
 
               if (!badgeEl) {
                 badgeEl = document.createElement('div');
-                badgeEl.id = badgeId;
-                badgeEl.setAttribute('data-rb-receipt-folio', folio);
+                badgeEl.className = 'rb-order-receipt-badge';
                 card.appendChild(badgeEl);
               }
 
               badgeEl.setAttribute('data-rb-sig', stateSignature);
-              badgeEl.className = `mt-2.5 p-3 rounded-2xl bg-zinc-950 border ${hasReceipt ? 'border-emerald-500/60' : 'border-amber-500/40'} space-y-2 text-xs shadow-md`;
+              badgeEl.className = `rb-order-receipt-badge mt-2.5 p-3 rounded-2xl bg-zinc-950 border ${hasReceipt ? 'border-emerald-500/60' : 'border-amber-500/40'} space-y-2 text-xs shadow-md`;
               badgeEl.innerHTML = `
                 <div class="flex items-center justify-between gap-2 flex-wrap">
                   <span class="font-black text-pink-400 text-[11px]">${shipName} ${shipCost > 0 ? '(+$' + shipCost + ' MXN)' : '(Gratis)'}</span>
