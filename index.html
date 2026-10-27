@@ -4124,8 +4124,35 @@
           </div>
         `;
 
-        if (html.includes('Guardar Ajustes')) {
-          html = html.replace(/(<button[^>]*>[\s\S]*?Guardar Ajustes[\s\S]*?<\/button>)/, shippingSettingsCardHTML + '$1');
+        window.rbShippingSettingsHTML = shippingSettingsCardHTML;
+        window.injectShippingTableInSettings = function () {
+          if (document.getElementById('rb-shipping-zones-settings-card')) return;
+          const allBtns = Array.from(document.querySelectorAll('button'));
+          const saveSettingsBtn = allBtns.find(b => {
+            const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+            const oc = String(b.getAttribute('onclick') || '').toLowerCase();
+            return (t.includes('guardar') && (t.includes('ajuste') || t.includes('config') || t.includes('seguridad') || t.includes('cambio') || t.includes('datos'))) ||
+                   oc.includes('savesettings') || oc.includes('saveconfig') || oc.includes('updateconfig') || oc.includes('storeconfig');
+          });
+          const settingsInput = document.querySelector(
+            'input[oninput*="storeConfig"], input[onchange*="storeConfig"], input[placeholder*="CLABE"], input[placeholder*="Banco"], input[placeholder*="WhatsApp"]'
+          );
+          const anchor = saveSettingsBtn || (settingsInput && (settingsInput.closest('.bg-zinc-900') || settingsInput.parentElement));
+          if (!anchor || !anchor.parentElement) return;
+
+          const wrapper = document.createElement('div');
+          wrapper.id = 'rb-shipping-zones-settings-card';
+          wrapper.innerHTML = window.rbShippingSettingsHTML;
+          if (saveSettingsBtn) {
+            saveSettingsBtn.insertAdjacentElement('beforebegin', wrapper);
+          } else {
+            anchor.insertAdjacentElement('afterend', wrapper);
+          }
+        };
+        setTimeout(window.injectShippingTableInSettings, 20);
+        if (!window.rbShippingSettingsWatcher) {
+          window.rbShippingSettingsWatcher = true;
+          setInterval(window.injectShippingTableInSettings, 350);
         }
 
         // INYECTAR BOTÓN DE VER TICKET Y DESGLOSE DE ENVÍO EN "PEDIDOS WEB" (ADMIN) Y PERFIL
