@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="RB Boutique" />
-  <link id="apple-touch-icon-link" rel="apple-touch-icon" href="" />
+  <link rel="apple-touch-icon" href="icon-512.png" />
   <link rel="manifest" href="manifest.json" />
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -124,26 +124,6 @@
     }
     function isInStandaloneMode() {
       return (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true);
-    }
-
-    function generateRBIconDataURL(size = 512) {
-      try {
-        const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, size, size);
-        ctx.strokeStyle = '#db2777'; ctx.lineWidth = Math.round(size * 0.03);
-        ctx.strokeRect(Math.round(size * 0.04), Math.round(size * 0.04), Math.round(size * 0.92), Math.round(size * 0.92));
-        ctx.fillStyle = '#ffffff'; ctx.font = `900 ${Math.round(size * 0.44)}px sans-serif`;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('RB', size / 2, size * 0.44);
-        ctx.fillStyle = '#ec4899'; ctx.font = `800 ${Math.round(size * 0.085)}px sans-serif`; ctx.fillText('BOUTIQUE', size / 2, size * 0.76);
-        return canvas.toDataURL('image/png');
-      } catch (e) { return ''; }
-    }
-
-    function initAppleTouchIcon() {
-      const icon192 = generateRBIconDataURL(192);
-      const appleLink = document.getElementById('apple-touch-icon-link');
-      if (appleLink && icon192) appleLink.href = icon192;
     }
 
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstallPrompt = e; renderApp(); });
@@ -5375,8 +5355,8 @@
       if (actTag === 'INPUT' && actPh) { const rest = root.querySelector(`input[placeholder="${actPh}"]`); if (rest) { rest.focus(); if (cStart !== null && rest.type === 'text') { try { rest.setSelectionRange(cStart, cStart); } catch (e) {} } } }
     }
 
-    window.onload = function () { initAppleTouchIcon(); renderApp(); };
-    initAppleTouchIcon(); renderApp();
+    window.onload = function () { renderApp(); };
+    renderApp();
   </script>
 </body>
 </html>
