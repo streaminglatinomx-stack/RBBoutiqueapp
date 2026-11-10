@@ -28,6 +28,8 @@
     
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
     .animate-fade { animation: fadeIn 0.22s ease-out forwards; }
+    @keyframes installGlow { 0%,100% { box-shadow: 0 0 18px rgba(255,255,255,0.25), 0 0 40px rgba(236,72,153,0.25); } 50% { box-shadow: 0 0 28px rgba(255,255,255,0.45), 0 0 55px rgba(236,72,153,0.4); } }
+    .animate-install-glow { animation: installGlow 2.4s ease-in-out infinite; }
     
     @keyframes bounceSlow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
     .animate-bounce-slow { animation: bounceSlow 1.8s infinite ease-in-out; }
@@ -1983,7 +1985,7 @@
                 </span>
               </button>
               <span class="w-full flex justify-center md:justify-start">
-                <button onclick="state.installGuidePlatform = isIOSDevice() ? 'ios' : 'android'; state.showPwaInstallModal = true; renderApp();" class="px-6 py-2.5 rounded-full bg-white/15 border border-white/25 text-white text-xs font-black shadow-lg flex items-center gap-2 hover:bg-white/25 transition">📲 <span>Instalar App Oficial</span></button>
+                <button onclick="state.installGuidePlatform = isIOSDevice() ? 'ios' : 'android'; state.showPwaInstallModal = true; renderApp();" class="animate-install-glow px-6 py-2.5 rounded-full bg-white/20 border border-white/40 text-white text-xs font-black shadow-lg flex items-center gap-2 hover:bg-white/30 hover:scale-105 transition">✨ <span>Instalar App Oficial</span></button>
               </span>
             </div>
 
