@@ -310,6 +310,22 @@
         showToast('No se pudo conectar con Google (' + (err.code || 'verifica tu ventana emergente') + ')', 'error');
       });
     };
+    window.copyAdminUid = function () {
+      const uid = (typeof state !== 'undefined' && (state.adminSetupUid || state.adminUid)) || '';
+      if (!uid) { showToast('Aún no hay UID para copiar. Entra con Google como administradora primero.', 'error'); return; }
+      const done = () => showToast('📋 UID copiada al portapapeles');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(uid).then(done).catch(() => fallbackCopyUid(uid, done));
+      } else { fallbackCopyUid(uid, done); }
+    };
+    function fallbackCopyUid(uid, done) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = uid; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta); done();
+      } catch (e) { showToast('No se pudo copiar. Selecciónala a mano.', 'error'); }
+    }
     function startPublicListeners() {
       if (!window.dbRef || window.publicListenersStarted) return;
       window.publicListenersStarted = true;
@@ -2641,6 +2657,7 @@
                   <div class="p-3 rounded-xl bg-zinc-950 border border-zinc-800">
                     <span class="text-[10px] font-bold text-zinc-400 uppercase block">UID de Google</span>
                     <span class="text-emerald-400 font-mono font-bold block mt-1 break-all">${state.adminUid || state.adminSetupUid || '—'}</span>
+                    <button onclick="copyAdminUid()" class="mt-2 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px]">📋 Copiar UID</button>
                   </div>
                 </div>
                 <div class="flex flex-wrap gap-2">
@@ -3101,7 +3118,7 @@
       }
 
       if (state.showAdminLoginModal) {
-        html += `<div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-pink-500/50 text-white flex items-center justify-center font-serif italic font-black text-2xl relative overflow-hidden shadow-[0_0_15px_rgba(236,72,153,0.3)]"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="space-y-4"><p class="text-xs text-zinc-300 leading-relaxed">El acceso de administradora es con tu cuenta de Google. No hay contraseña en la tienda: tu cuenta debe estar autorizada en Firebase (adminUids).</p>${state.adminSetupUid ? `<div class="p-3 rounded-xl bg-zinc-950 border border-amber-500/50 text-xs"><p class="text-amber-400 font-black mb-1">Tu UID de Google (para autorizarla en Firebase):</p><p class="font-mono text-white break-all">${state.adminSetupUid}</p><p class="text-zinc-400 mt-1">Cópiala en Firebase Console → Realtime Database → rb_boutique_data → adminUids → ${state.adminSetupUid} = true</p></div>` : ''}</div><button type="submit" class="w-full py-4 rounded-xl bg-white text-zinc-900 font-black text-sm shadow-xl">Continuar con Google como Administradora</button></form></div>`;
+        html += `<div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-pink-500/50 text-white flex items-center justify-center font-serif italic font-black text-2xl relative overflow-hidden shadow-[0_0_15px_rgba(236,72,153,0.3)]"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="space-y-4"><p class="text-xs text-zinc-300 leading-relaxed">El acceso de administradora es con tu cuenta de Google. No hay contraseña en la tienda: tu cuenta debe estar autorizada en Firebase (adminUids).</p>${state.adminSetupUid ? `<div class="p-3 rounded-xl bg-zinc-950 border border-amber-500/50 text-xs"><p class="text-amber-400 font-black mb-1">Tu UID de Google (para autorizarla en Firebase):</p><p class="font-mono text-white break-all">${state.adminSetupUid}</p><button type="button" onclick="copyAdminUid()" class="mt-2 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-[11px]">📋 Copiar UID</button><p class="text-zinc-400 mt-1">Pégala en Firebase Console → Realtime Database → rb_boutique_data → adminUids → ${state.adminSetupUid} = true</p></div>` : ''}</div><button type="submit" class="w-full py-4 rounded-xl bg-white text-zinc-900 font-black text-sm shadow-xl">Continuar con Google como Administradora</button></form></div>`;
       }
 
 
