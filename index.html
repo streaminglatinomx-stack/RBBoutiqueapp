@@ -145,7 +145,7 @@
       const icon512 = generateRBIconDataURL(512);
       const appleLink = document.getElementById('apple-touch-icon-link');
       if (appleLink && icon192) appleLink.href = icon192;
-      const manifestObj = { name: 'RB Boutique', short_name: 'RB Boutique', display: 'standalone', background_color: '#000000', theme_color: '#000000', icons: [{ src: icon192, sizes: '192x192', type: 'image/png' }, { src: icon512, sizes: '512x512', type: 'image/png' }] };
+      const manifestObj = { name: 'RB Boutique', short_name: 'RB Boutique', start_url: '/', scope: '/', id: '/', display: 'standalone', background_color: '#000000', theme_color: '#000000', icons: [{ src: icon192, sizes: '192x192', type: 'image/png' }, { src: icon512, sizes: '512x512', type: 'image/png' }] };
       try {
         const blob = new Blob([JSON.stringify(manifestObj)], { type: 'application/manifest+json' });
         const manifestLink = document.getElementById('pwa-manifest-link');
@@ -154,18 +154,20 @@
     }
 
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstallPrompt = e; renderApp(); });
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); }); }
     window.addEventListener('appinstalled', () => { deferredInstallPrompt = null; state.isAppInstalled = true; state.showPwaInstallModal = false; showToast('¡App Oficial instalada!'); renderApp(); });
 
     window.handleInstallClick = async function () {
-      if (deferredInstallPrompt) {
-        deferredInstallPrompt.prompt();
-        const { outcome } = await deferredInstallPrompt.userChoice;
-        if (outcome === 'accepted') { deferredInstallPrompt = null; state.isAppInstalled = true; state.showPwaInstallModal = false; }
+      const evt = deferredInstallPrompt || window.deferredInstallPrompt;
+      if (evt) {
+        evt.prompt();
+        const { outcome } = await evt.userChoice;
+        deferredInstallPrompt = null; window.deferredInstallPrompt = null;
+        if (outcome === 'accepted') { state.isAppInstalled = true; state.showPwaInstallModal = false; }
         renderApp();
       } else {
-        state.isAppInstalled = true;
-        state.showPwaInstallModal = false;
-        showToast('📲 Acceso directo de RB Boutique listo en tu dispositivo');
+        state.installGuidePlatform = isIOSDevice() ? 'ios' : 'android';
+        state.showPwaInstallModal = true;
         renderApp();
       }
     };
@@ -1985,7 +1987,7 @@
                 </span>
               </button>
               <span class="w-full flex justify-center md:justify-start">
-                <button onclick="state.installGuidePlatform = isIOSDevice() ? 'ios' : 'android'; state.showPwaInstallModal = true; renderApp();" class="animate-install-glow px-6 py-2.5 rounded-full bg-white/20 border border-white/40 text-white text-xs font-black shadow-lg flex items-center gap-2 hover:bg-white/30 hover:scale-105 transition">✨ <span>Instalar App Oficial</span></button>
+                <button onclick="handleInstallClick();" class="animate-install-glow px-6 py-2.5 rounded-full bg-white/20 border border-white/40 text-white text-xs font-black shadow-lg flex items-center gap-2 hover:bg-white/30 hover:scale-105 transition">✨ <span>Instalar App Oficial</span></button>
               </span>
             </div>
 
