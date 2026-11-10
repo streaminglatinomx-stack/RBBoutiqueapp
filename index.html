@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>RB Boutique • Catálogo Digital</title>
-  <!-- RB BOUTIQUE v1-seguridad (2026-11-10): sin credenciales ni datos bancarios en el codigo. El acceso admin es con Google + UID en Firebase. Requiere las reglas RTDB de reglas-rb-boutique-v1.json. -->
+  <!-- RB BOUTIQUE premium-inicio (2026-11-10): v1-seguridad + inicio Diseño 5 Portada de Revista con Logo 2. Sin credenciales ni datos bancarios en el codigo. El acceso admin es con Google + UID en Firebase. Requiere las reglas RTDB de reglas-rb-boutique-v1.json. -->
   <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,6 +17,9 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,600&display=swap" rel="stylesheet" />
 
   <style>
     * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
@@ -1952,44 +1955,50 @@
     };
     function renderWelcomeAccessScreenHTML() {
       return `
-        <div class="min-h-screen relative bg-black text-white flex flex-col justify-between overflow-hidden select-none">
-          <img src="https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1400&q=85" class="absolute inset-0 w-full h-full object-cover opacity-50 scale-105" />
-          <div class="absolute inset-0 bg-gradient-to-b from-black/80 via-black/45 to-black/95"></div>
-          
-          <div class="relative z-10 w-full pt-14 pb-6 flex flex-col items-center text-center px-4 animate-fade">
-            <button onclick="handleSecretLogoTap()" class="flex flex-col items-center gap-3 focus:outline-none group">
-              <div class="relative w-24 h-24 flex items-center justify-center">
-                <div class="absolute inset-0 rounded-full border border-pink-300/30 group-hover:scale-105 transition duration-500"></div>
-                <div class="w-20 h-20 rounded-full bg-gradient-to-br from-zinc-900 via-black to-zinc-900 border border-zinc-700/50 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.15)] group-hover:shadow-[0_0_40px_rgba(236,72,153,0.3)] transition duration-500 relative overflow-hidden">
-                  <div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/10 to-transparent rounded-t-full"></div>
-                  <span class="font-serif italic font-black text-4xl text-transparent bg-clip-text bg-gradient-to-br from-white via-pink-100 to-pink-300 tracking-tighter pr-1">${state.storeConfig.brandInitials || 'RB'}</span>
-                </div>
-              </div>
-              <div class="mt-1 text-center">
-                <span class="font-serif text-3xl block leading-none text-white font-light tracking-[0.15em] ml-1 uppercase">${state.storeConfig.brandName || 'RB BOUTIQUE'}</span>
-                <div class="flex items-center justify-center gap-2 mt-3">
-                  <span class="w-6 h-[1px] bg-gradient-to-r from-transparent to-pink-500/50"></span>
-                  <span class="block text-[10px] font-extrabold tracking-[0.3em] text-pink-300 uppercase">${state.storeConfig.brandSubtitle || 'Moda y Estilo'}</span>
-                  <span class="w-6 h-[1px] bg-gradient-to-l from-transparent to-pink-500/50"></span>
-                </div>
-              </div>
-            </button>
-            <button onclick="state.installGuidePlatform = isIOSDevice() ? 'ios' : 'android'; state.showPwaInstallModal = true; renderApp();" class="mt-5 px-6 py-2.5 rounded-full bg-white/15 border border-white/25 text-white text-xs font-black shadow-lg flex items-center gap-2 hover:bg-white/25 transition">📲 <span>Instalar App Oficial</span></button>
-          </div>
+        <div class="min-h-screen relative bg-black text-white overflow-x-hidden select-none">
+          <img src="https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1400&q=85" class="absolute inset-0 w-full h-full object-cover" />
+          <div class="absolute inset-0 bg-gradient-to-b from-black/75 via-black/55 to-black/95"></div>
+          <div class="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/40 hidden md:block"></div>
 
-          <div class="relative z-10 max-w-md mx-auto w-full px-5 pb-8 space-y-5">
-            <div class="bg-zinc-950/85 backdrop-blur-xl border border-white/15 rounded-[32px] p-6 shadow-2xl space-y-5 animate-fade">
+          <div class="relative z-10 min-h-screen w-full max-w-6xl mx-auto px-5 py-10 flex flex-col justify-between md:flex-row md:items-center md:gap-12 animate-fade">
+            <div class="flex flex-col items-center text-center md:items-start md:text-left gap-5 pt-6 md:pt-0 md:w-[46%]">
+              <button onclick="handleSecretLogoTap()" class="flex flex-col items-center md:items-start focus:outline-none group">
+                <img src="logo.png" alt="RB Boutique" class="w-52 md:w-72 h-auto mix-blend-screen" onerror="this.style.display='none';var f=document.getElementById('rbLogoFallback');if(f)f.style.display='flex';" />
+                <span id="rbLogoFallback" style="display:none" class="flex-col items-center md:items-start gap-3">
+                  <span class="relative w-24 h-24 flex items-center justify-center">
+                    <span class="absolute inset-0 rounded-full border border-pink-300/30"></span>
+                    <span class="w-20 h-20 rounded-full bg-gradient-to-br from-zinc-900 via-black to-zinc-900 border border-zinc-700/50 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.15)] relative overflow-hidden">
+                      <span class="font-serif italic font-black text-4xl text-transparent bg-clip-text bg-gradient-to-br from-white via-pink-100 to-pink-300 tracking-tighter pr-1">${state.storeConfig.brandInitials || 'RB'}</span>
+                    </span>
+                  </span>
+                  <span class="mt-1 text-center md:text-left">
+                    <span class="font-serif text-3xl block leading-none text-white font-light tracking-[0.15em] ml-1 uppercase">${state.storeConfig.brandName || 'RB BOUTIQUE'}</span>
+                    <span class="flex items-center justify-center md:justify-start gap-2 mt-3">
+                      <span class="w-6 h-[1px] bg-gradient-to-r from-transparent to-pink-500/50"></span>
+                      <span class="block text-[10px] font-extrabold tracking-[0.3em] text-pink-300 uppercase">${state.storeConfig.brandSubtitle || 'Moda y Estilo'}</span>
+                      <span class="w-6 h-[1px] bg-gradient-to-l from-transparent to-pink-500/50"></span>
+                    </span>
+                  </span>
+                </span>
+              </button>
+              <span class="w-full flex justify-center md:justify-start">
+                <button onclick="state.installGuidePlatform = isIOSDevice() ? 'ios' : 'android'; state.showPwaInstallModal = true; renderApp();" class="px-6 py-2.5 rounded-full bg-white/15 border border-white/25 text-white text-xs font-black shadow-lg flex items-center gap-2 hover:bg-white/25 transition">📲 <span>Instalar App Oficial</span></button>
+              </span>
+            </div>
+
+            <div class="w-full max-w-md md:w-[46%] mx-auto md:mx-0 pb-2 space-y-5">
+              <div class="bg-black/45 backdrop-blur-2xl border border-white/25 rounded-[32px] p-6 shadow-2xl space-y-5 animate-fade">
               ${!state.showGoogleFormInWelcome ? `
                 <div class="text-center space-y-2 mb-1">
-                  <span class="inline-block px-4 py-1.5 rounded-full bg-pink-600/20 border border-pink-500/40 text-pink-300 text-[11px] font-black uppercase tracking-wider">✨ CLUB VIP • OBTÉN 10% OFF EN AUTOMÁTICO</span>
-                  <p class="text-xs text-zinc-300">Conecta tu cuenta de Google para activar tu 10% de descuento permanente y premios exclusivos.</p>
+                  <span class="inline-block px-4 py-1.5 rounded-full bg-pink-500/90 border border-pink-300/50 text-white text-[11px] font-black uppercase tracking-wider">✨ CLUB VIP • OBTÉN 10% OFF EN AUTOMÁTICO</span>
+                  <p class="text-xs text-zinc-200">Conecta tu cuenta de Google para activar tu 10% de descuento permanente y premios exclusivos.</p>
                 </div>
                 <div class="space-y-3 pt-1">
                   <button onclick="loginWithGoogle()" class="w-full py-4 px-4 rounded-2xl bg-white text-zinc-900 font-black text-sm shadow-xl flex items-center justify-center gap-3 hover:scale-[1.02] transition">
                     <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.9C3.5 21.4 7.4 24 12 24z"/></svg>
                     <span>Continuar con Google (Recibir 10% OFF)</span>
                   </button>
-                  <button onclick="state.authStatus='guest'; state.currentUser=null; renderApp();" class="w-full py-3.5 px-4 rounded-2xl bg-white/10 border border-white/15 text-white font-bold text-xs hover:bg-white/20 transition">Entrar como Invitado</button>
+                  <button onclick="state.authStatus='guest'; state.currentUser=null; renderApp();" class="w-full py-3.5 px-4 rounded-2xl bg-white/10 border border-white/25 text-white font-bold text-xs hover:bg-white/20 transition">Entrar como Invitado</button>
                 </div>
               ` : `
                 <form onsubmit="submitCompleteRegistration(event)" class="space-y-3.5 animate-fade">
@@ -2016,13 +2025,14 @@
                   <button type="submit" class="w-full py-4 mt-1 rounded-2xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm shadow-lg hover:scale-[1.02] transition">Finalizar y Activar 10% OFF VIP</button>
                 </form>
               `}
-            </div>
-            <div class="flex flex-col items-center gap-2">
-              <span class="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400">Síguenos en redes oficiales</span>
-              <div class="flex items-center justify-center gap-4">
-                <a href="${formatSocialUrl(state.storeConfig.socialLinks.instagram, 'instagram')}" target="_blank" class="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center text-white shadow-lg hover:scale-110 transition"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg></a>
-                <a href="${formatSocialUrl(state.storeConfig.socialLinks.facebook, 'facebook')}" target="_blank" class="w-10 h-10 rounded-full bg-[#1877F2] flex items-center justify-center text-white shadow-lg hover:scale-110 transition"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg></a>
-                <a href="${formatSocialUrl(state.storeConfig.socialLinks.tiktok, 'tiktok')}" target="_blank" class="w-10 h-10 rounded-full bg-zinc-900 border border-white/25 flex items-center justify-center text-white shadow-lg hover:scale-110 transition"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-5.2 1.74 2.89 2.89 0 012.31-4.64 2.93 2.93 0 01.88.13V9.4a6.84 6.84 0 00-1-.05A6.33 6.33 0 005 20.1a6.34 6.34 0 0010.86-4.43v-7a8.16 8.16 0 004.77 1.52v-3.4a4.85 4.85 0 01-1.04-.1z"/></svg></a>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <span class="text-[10px] font-extrabold uppercase tracking-widest text-zinc-300">Síguenos en redes oficiales</span>
+                <div class="flex items-center justify-center gap-4">
+                  <a href="${formatSocialUrl(state.storeConfig.socialLinks.instagram, 'instagram')}" target="_blank" class="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center text-white shadow-lg hover:scale-110 transition"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg></a>
+                  <a href="${formatSocialUrl(state.storeConfig.socialLinks.facebook, 'facebook')}" target="_blank" class="w-10 h-10 rounded-full bg-[#1877F2] flex items-center justify-center text-white shadow-lg hover:scale-110 transition"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg></a>
+                  <a href="${formatSocialUrl(state.storeConfig.socialLinks.tiktok, 'tiktok')}" target="_blank" class="w-10 h-10 rounded-full bg-zinc-900 border border-white/25 flex items-center justify-center text-white shadow-lg hover:scale-110 transition"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-5.2 1.74 2.89 2.89 0 012.31-4.64 2.93 2.93 0 01.88.13V9.4a6.84 6.84 0 00-1-.05A6.33 6.33 0 005 20.1a6.34 6.34 0 0010.86-4.43v-7a8.16 8.16 0 004.77 1.52v-3.4a4.85 4.85 0 01-1.04-.1z"/></svg></a>
+                </div>
               </div>
             </div>
           </div>
