@@ -1956,7 +1956,8 @@
     function renderWelcomeAccessScreenHTML() {
       return `
         <div class="min-h-screen relative bg-black text-white overflow-x-hidden select-none">
-          <img src="portada.jpg" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1400&q=85';" class="absolute inset-0 w-full h-full object-cover" />
+          <img src="portada.jpg" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1400&q=85';" class="absolute inset-0 w-full h-full object-cover md:hidden" />
+          <img src="portada-laptop.jpg" onerror="this.onerror=null;this.src='portada.jpg';" class="absolute inset-0 w-full h-full object-cover hidden md:block" />
           <div class="absolute inset-0 bg-gradient-to-b from-black/60 via-black/35 to-black/85"></div>
           <div class="absolute inset-0 bg-gradient-to-r from-black/45 via-transparent to-black/30 hidden md:block"></div>
 
