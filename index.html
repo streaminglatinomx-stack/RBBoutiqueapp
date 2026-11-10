@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>RB Boutique • Catálogo Digital</title>
+  <!-- RB BOUTIQUE v1-seguridad (2026-11-10): sin credenciales ni datos bancarios en el codigo. El acceso admin es con Google + UID en Firebase. Requiere las reglas RTDB de reglas-rb-boutique-v1.json. -->
   <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -187,15 +188,52 @@
 
     function loadStored(key, fallback) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
     
-    function saveStored(key, data) { 
-      try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} 
-      if (window.dbRef) { 
+    // RB v1-seguridad: claves que SOLO la administradora puede escribir en Firebase.
+    const ADMIN_ONLY_KEYS = ['rb_boutique_vip_clients', 'rb_boutique_sales', 'rb_boutique_tickets', 'rb_boutique_pending_orders', 'rb_boutique_petty_cash', 'rb_boutique_costs', 'rb_boutique_private_config', 'rb_boutique_order_meta'];
+    // Claves que NUNCA se guardan en localStorage (datos privados de otras personas).
+    const NO_LOCAL_KEYS = ['rb_boutique_vip_clients', 'rb_boutique_sales', 'rb_boutique_tickets', 'rb_boutique_pending_orders', 'rb_boutique_petty_cash', 'rb_boutique_costs', 'rb_boutique_private_config'];
+    // Campos que jamas deben viajar en el config publico.
+    const PUBLIC_CONFIG_FORBIDDEN = ['authSecurity', 'bankName', 'accountHolder', 'clabe', 'cardNumber', 'oxxoBankName', 'oxxoAccountHolder', 'oxxoCardNumber', 'oxxoNote', 'ordersExtraMeta'];
+    function stripPublicConfig(cfg) {
+      if (!cfg || typeof cfg !== 'object') return cfg || {};
+      const out = { ...cfg };
+      PUBLIC_CONFIG_FORBIDDEN.forEach(k => { delete out[k]; });
+      return out;
+    }
+    function publicProduct(p) {
+      if (!p || typeof p !== 'object') return p;
+      const out = { ...p }; delete out.cost; return out;
+    }
+    function normalizeFirebaseMap(val) {
+      if (!val) return [];
+      if (Array.isArray(val)) return val.filter(Boolean).map((v, i) => ({ ...v, _fbKey: String(i) }));
+      if (typeof val === 'object') return Object.entries(val).filter(([, v]) => v).map(([k, v]) => ({ ...v, _fbKey: k }));
+      return [];
+    }
+    function cleanRecordForSave(rec) {
+      if (!rec || typeof rec !== 'object') return rec;
+      const out = { ...rec }; delete out._fbKey; return out;
+    }
+    // Claves de un solo dispositivo: jamas se escriben en Firebase (antes, el
+    // usuario actual y la wishlist se subian a un nodo compartido y el ultimo
+    // que entraba sobreescribia al anterior).
+    const LOCAL_ONLY_KEYS = ['rb_boutique_current_user', 'rb_boutique_wishlist', 'rb_boutique_active_folio', 'rb_boutique_last_receipt', 'rb_boutique_orders_meta'];
+    function saveStored(key, data) {
+      // v1-seguridad: lo privado no queda guardado en el navegador de nadie.
+      if (!NO_LOCAL_KEYS.includes(key)) { try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} }
+      // v1-seguridad: el config publico se escribe siempre ya limpio.
+      let payload = data;
+      if (Array.isArray(payload)) payload = payload.map((it) => cleanRecordForSave(it));
+      if (key === 'rb_boutique_config') payload = stripPublicConfig(data);
+      // v1-seguridad: sin sesion de administradora, NO se escribe ninguna lista privada completa.
+      if (ADMIN_ONLY_KEYS.includes(key) && !(typeof state !== 'undefined' && state.isAdmin)) { console.warn('[RB seguridad] Escritura bloqueada sin admin:', key); return; }
+      if (window.dbRef && !LOCAL_ONLY_KEYS.includes(key)) { 
         if (key !== 'rb_boutique_visits') {
           window.pendingSavesCount = (window.pendingSavesCount || 0) + 1;
           window.isSavingData = true;
           if (window.saveShieldTimer) clearTimeout(window.saveShieldTimer);
         }
-        window.dbRef.child(key).set(data)
+        window.dbRef.child(key).set(payload)
           .then(() => {
             if (key !== 'rb_boutique_visits') {
               window.pendingSavesCount = Math.max(0, (window.pendingSavesCount || 1) - 1);
@@ -225,6 +263,239 @@
       appId: "1:255730748931:web:8ebbabf8b9309b3ed94836"
     };
 
+    // ---------- RB v1-seguridad: acceso admin con Google + UID ----------
+    // No hay usuario/contrasena/PIN en este archivo. La UID autorizada se
+    // registra en Firebase Console > Realtime Database, en
+    // rb_boutique_data/adminUids/<UID> = true. Si una cuenta no autorizada
+    // intenta entrar, la app muestra su UID para copiarla de ahi.
+    window.checkAdminAccess = function (user, openPos) {
+      if (!user || !window.dbRef) return Promise.resolve(false);
+      state.adminLoginPending = false;
+      return window.dbRef.child('adminUids').child(user.uid).once('value')
+        .then((snap) => {
+          const ok = snap.val() === true;
+          state.adminCheckDone = true;
+          if (ok) {
+            state.isAdmin = true; state.adminUid = user.uid; state.adminEmail = user.email || '';
+            state.showAdminLoginModal = false; state.adminLoginPending = false;
+            startAdminListeners();
+            if (openPos) {
+              state.appMode = 'backoffice'; state.backofficeTab = 'pos';
+              checkLowStockAlert(); showToast('🔓 Bienvenida al Punto de Venta');
+            }
+            renderApp();
+          } else {
+            state.isAdmin = false; state.adminUid = user.uid; state.adminSetupUid = user.uid; state.adminEmail = user.email || '';
+            if (openPos) { showToast('Esta cuenta de Google no es administradora. Copia tu UID de esta pantalla y registrala en Firebase.', 'error'); renderApp(); }
+          }
+          return ok;
+        })
+        .catch((err) => {
+          state.adminCheckDone = true;
+          console.warn('[RB seguridad] No se pudo verificar admin:', err && err.code);
+          if (openPos) { showToast('No se pudo verificar el acceso de administradora. Revisa las reglas de Firebase.', 'error'); renderApp(); }
+          return false;
+        });
+    };
+    window.loginAsAdminWithGoogle = function () {
+      if (!window.auth) { showToast('Error al inicializar Google Auth', 'error'); return; }
+      state.adminLoginPending = true;
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      window.auth.signInWithPopup(provider).then((result) => {
+        if (result && result.user) window.checkAdminAccess(result.user, true);
+      }).catch((err) => {
+        state.adminLoginPending = false;
+        if (err && (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request')) { showToast('Selecciona tu cuenta de Google para entrar como administradora', 'error'); return; }
+        showToast('No se pudo conectar con Google (' + (err.code || 'verifica tu ventana emergente') + ')', 'error');
+      });
+    };
+    function startPublicListeners() {
+      if (!window.dbRef || window.publicListenersStarted) return;
+      window.publicListenersStarted = true;
+      const onErr = (label) => (err) => {
+        console.warn('[RB seguridad] Lectura publica denegada:', label, err && err.code);
+        if (!window.publicReadFailed) { window.publicReadFailed = true; showToast('No se pudo cargar el catalogo. Revisa tu conexion.', 'error'); }
+      };
+      window.dbRef.child('rb_boutique_products').on('value', (snap) => {
+        if (window.isSavingData) return;
+        const list = normalizeFirebaseList(snap.val()).map(publicProduct);
+        state.products = list;
+        try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(list)); } catch (e) {}
+        renderApp();
+      }, onErr('productos'));
+      window.dbRef.child('rb_boutique_categories').on('value', (snap) => {
+        if (window.isSavingData) return;
+        const cats = normalizeFirebaseList(snap.val());
+        if (cats && cats.length) state.visualCategories = cats;
+        renderApp();
+      }, onErr('categorias'));
+      window.dbRef.child('rb_boutique_config').on('value', (snap) => {
+        if (window.isSavingData) return;
+        const cfg = snap.val();
+        if (cfg) state.storeConfig = { ...state.storeConfig, ...stripPublicConfig(cfg) };
+        renderApp();
+      }, onErr('config'));
+    }
+    function startAdminListeners() {
+      if (!window.dbRef || !state.isAdmin || window.adminListenersStarted) return;
+      window.adminListenersStarted = true;
+      const on = (key, apply) => {
+        window.dbRef.child(key).on('value', (snap) => {
+          if (window.isSavingData) return;
+          apply(snap.val());
+          renderApp();
+        }, (err) => { console.warn('[RB seguridad] Sin acceso admin a', key, err && err.code); });
+      };
+      on('rb_boutique_sales', (v) => { state.salesHistory = normalizeFirebaseMap(v); });
+      on('rb_boutique_vip_clients', (v) => { state.vipClients = normalizeFirebaseMap(v); });
+      on('rb_boutique_tickets', (v) => { state.supportTickets = normalizeFirebaseMap(v); });
+      on('rb_boutique_pending_orders', (v) => { state.pendingWebOrders = normalizeFirebaseMap(v); });
+      on('rb_boutique_petty_cash', (v) => { if (v) state.pettyCash = v; });
+      on('rb_boutique_costs', (v) => { state.productCosts = v || {}; });
+      on('rb_boutique_private_config', (v) => { if (v) { state.privateConfig = v; state.privateConfigLoaded = true; } });
+    }
+    function stopAdminListeners() {
+      if (!window.dbRef) return;
+      ['rb_boutique_sales', 'rb_boutique_vip_clients', 'rb_boutique_tickets', 'rb_boutique_pending_orders', 'rb_boutique_petty_cash', 'rb_boutique_costs', 'rb_boutique_private_config'].forEach((k) => { try { window.dbRef.child(k).off(); } catch (e) {} });
+      window.adminListenersStarted = false;
+      state.salesHistory = []; state.vipClients = []; state.supportTickets = []; state.pendingWebOrders = [];
+      state.productCosts = {}; state.privateConfig = {}; state.privateConfigLoaded = false;
+    }
+    // --- Registro VIP propio: lectura/escritura por clave, nunca la lista completa ---
+    function loadOwnVipRecordByEmail(email) {
+      return new Promise((resolve) => {
+        if (!window.dbRef || !email) { resolve(null); return; }
+        window.dbRef.child('rb_boutique_vip_clients').orderByChild('email').equalTo(email).once('value')
+          .then((snap) => {
+            const v = snap.val();
+            if (!v) { resolve(null); return; }
+            const entries = Object.entries(v);
+            if (!entries.length) { resolve(null); return; }
+            const kv = entries[0];
+            resolve({ ...kv[1], _fbKey: kv[0] });
+          })
+          .catch(() => resolve(null));
+      });
+    }
+    function saveOwnVipRecord() {
+      if (!state.currentUser || !window.dbRef) return Promise.resolve(false);
+      const rec = cleanRecordForSave(state.currentUser);
+      if (state.currentUser._fbKey) {
+        return window.dbRef.child('rb_boutique_vip_clients').child(state.currentUser._fbKey).set(rec).then(() => true).catch(() => false);
+      }
+      const ref = window.dbRef.child('rb_boutique_vip_clients').push();
+      state.currentUser._fbKey = ref.key;
+      return ref.set(rec).then(() => true).catch(() => false);
+    }
+    function saveVipClientsList() {
+      if (state.isAdmin) { saveVipClientsList(); return; }
+      saveOwnVipRecord();
+    }
+    function saveOwnTicket(ticket) {
+      if (!ticket || !window.dbRef) return Promise.resolve(false);
+      const rec = cleanRecordForSave(ticket);
+      if (ticket._fbKey) {
+        return window.dbRef.child('rb_boutique_tickets').child(ticket._fbKey).set(rec).then(() => true).catch(() => false);
+      }
+      const ref = window.dbRef.child('rb_boutique_tickets').push();
+      ticket._fbKey = ref.key;
+      return ref.set(rec).then(() => true).catch(() => false);
+    }
+    function saveTicketsList() {
+      if (state.isAdmin) { saveTicketsList(); return; }
+      (state.supportTickets || []).forEach((tk) => { if (tk && tk.id) saveOwnTicket(tk); });
+    }
+    function loadOwnTickets() {
+      if (!state.currentUser || !state.currentUser.email || !window.dbRef) return;
+      window.dbRef.child('rb_boutique_tickets').orderByChild('email').equalTo(state.currentUser.email).once('value')
+        .then((snap) => { const v = snap.val(); state.supportTickets = v ? normalizeFirebaseMap(v) : []; renderApp(); })
+        .catch(() => {});
+    }
+    // --- Datos de pago privados: solo se leen cuando se van a mostrar ---
+    function ensurePaymentConfigLoaded() {
+      if (state.privateConfigLoaded || !window.dbRef) return Promise.resolve(state.privateConfig || {});
+      return window.dbRef.child('rb_boutique_private_config').once('value')
+        .then((snap) => { const v = snap.val(); if (v) { state.privateConfig = v; state.privateConfigLoaded = true; } return state.privateConfig || {}; })
+        .catch(() => (state.privateConfig || {}));
+    }
+    function getPaymentConfig() { return state.privateConfig || {}; }
+    function savePrivateConfig(showMsg) {
+      if (!state.isAdmin || !window.dbRef) { if (showMsg) showToast('Solo la administradora puede guardar datos de pago', 'error'); return; }
+      window.dbRef.child('rb_boutique_private_config').set(state.privateConfig || {})
+        .then(() => { if (showMsg) showToast('✅ Datos de pago guardados (privado)'); })
+        .catch(() => { if (showMsg) showToast('No se pudo guardar. Revisa las reglas de Firebase.', 'error'); });
+    }
+    function savePublicConfig() { saveStored('rb_boutique_config', stripPublicConfig(state.storeConfig)); }
+    window.saveAllSettings = function () {
+      savePublicConfig();
+      if (state.isAdmin) { savePrivateConfig(true); }
+      else { showToast('✅ Configuración pública guardada en Firebase'); }
+      renderApp();
+    };
+    // --- Seguimiento por folio: nodo publico por folio, sin exponer ventas ---
+    function writeTrackingRecord(order, step) {
+      if (!order || !order.id || !window.dbRef) return Promise.resolve();
+      const rec = { id: order.id, customer: order.customer || '', status: order.status || '', trackingStep: step, total: order.total || 0, shippingZoneName: order.shippingZoneName || '', shippingCost: order.shippingCost || 0, itemsList: order.itemsList || [], date: order.date || '', time: order.time || '' };
+      return window.dbRef.child('rb_boutique_tracking').child(String(order.id)).set(rec).catch(() => {});
+    }
+    function loadTrackingRecord(folio) {
+      if (!folio || !window.dbRef) return Promise.resolve(null);
+      return window.dbRef.child('rb_boutique_tracking').child(String(folio)).once('value')
+        .then((snap) => snap.val() || null).catch(() => null);
+    }
+    // --- Comprobantes por folio: ya NO van dentro del config publico ---
+    function loadOrderMeta(folio) {
+      if (!folio || !window.dbRef) return;
+      if (!state.orderMetaCache) state.orderMetaCache = {};
+      window.dbRef.child('rb_boutique_order_meta').child(String(folio)).once('value')
+        .then((snap) => { const v = snap.val(); if (v) { state.orderMetaCache[String(folio)] = v; renderApp(); } })
+        .catch(() => {});
+    }
+    // --- Migraciones de una sola vez (solo admin) ---
+    window.migrateCostsToPrivate = function () {
+      if (!state.isAdmin || !window.dbRef) { showToast('Solo la administradora puede migrar costos', 'error'); return; }
+      window.dbRef.child('rb_boutique_products').once('value').then((snap) => {
+        const raw = snap.val() || {};
+        const updates = {}; let moved = 0;
+        Object.entries(raw).forEach((entry) => {
+          const k = entry[0]; const p = entry[1];
+          if (p && p.cost !== undefined && p.cost !== null) {
+            updates['rb_boutique_costs/' + (p.id || k)] = { cost: Number(p.cost) || 0 };
+            updates['rb_boutique_products/' + k + '/cost'] = null;
+            moved++;
+          }
+        });
+        if (!moved) { showToast('No hay costos viejos que migrar en el catálogo público'); return; }
+        return window.dbRef.update(updates).then(() => { showToast('✅ ' + moved + ' costo(s) movidos al nodo privado'); renderApp(); });
+      }).catch(() => { showToast('No se pudo migrar. Revisa las reglas de Firebase.', 'error'); });
+    };
+    window.cleanupPublicConfigSecrets = function () {
+      if (!state.isAdmin || !window.dbRef) { showToast('Solo la administradora puede limpiar el config público', 'error'); return; }
+      window.dbRef.child('rb_boutique_config').once('value').then((snap) => {
+        const cfg = snap.val() || {};
+        const metas = cfg.ordersExtraMeta || {};
+        const updates = {};
+        Object.entries(metas).forEach((entry) => {
+          updates['rb_boutique_order_meta/' + entry[0]] = entry[1];
+        });
+        updates['rb_boutique_config/ordersExtraMeta'] = null;
+        updates['rb_boutique_config/authSecurity'] = null;
+        updates['rb_boutique_config/bankName'] = null;
+        updates['rb_boutique_config/accountHolder'] = null;
+        updates['rb_boutique_config/clabe'] = null;
+        updates['rb_boutique_config/cardNumber'] = null;
+        updates['rb_boutique_config/oxxoBankName'] = null;
+        updates['rb_boutique_config/oxxoAccountHolder'] = null;
+        updates['rb_boutique_config/oxxoCardNumber'] = null;
+        updates['rb_boutique_config/oxxoNote'] = null;
+        return window.dbRef.update(updates).then(() => {
+          state.storeConfig = stripPublicConfig(state.storeConfig);
+          showToast('✅ Config público limpio. Comprobantes movidos a su nodo por folio.');
+          renderApp();
+        });
+      }).catch(() => { showToast('No se pudo limpiar. Revisa las reglas de Firebase.', 'error'); });
+    };
     try {
       if (!firebase.apps.length) {
         firebase.initializeApp(firebaseConfig);
@@ -233,79 +504,32 @@
 
         window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
+        window.auth.onAuthStateChanged((user) => {
+          if (!user) {
+            if (typeof state !== 'undefined' && state.isAdmin) { state.isAdmin = false; state.appMode = 'storefront'; stopAdminListeners(); renderApp(); }
+            return;
+          }
+          if (typeof state === 'undefined') return;
+          if (state.adminLoginPending) { window.checkAdminAccess(user, true); return; }
+          if (!state.adminCheckDone) { window.checkAdminAccess(user, false); }
+          if (state.currentUser && state.currentUser.email && !state.currentUser._fbKey) {
+            loadOwnVipRecordByEmail(state.currentUser.email).then((rec) => {
+              if (rec) { state.currentUser = { ...rec, ...state.currentUser, _fbKey: rec._fbKey }; try { window.localStorage.setItem('rb_boutique_current_user', JSON.stringify(state.currentUser)); } catch (e) {} }
+            });
+          }
+          if (state.currentUser && state.currentUser.email) loadOwnTickets();
+        });
+
         window.auth.getRedirectResult().then((result) => {
           if (result && result.user) {
-            handleGoogleUserAuthenticated(result.user);
+            if (state.adminLoginPending) { window.checkAdminAccess(result.user, true); }
+            else { handleGoogleUserAuthenticated(result.user); }
           }
         }).catch((err) => {
           console.warn("Redirect auth info:", err);
         });
-        
-        window.dbRef.on('value', (snapshot) => {
-          if (window.isSavingData) return; // 🛡️ Si estamos guardando, ignora la basura de Firebase
-          const cloudData = snapshot.val();
-          if (cloudData) {
-            const hadBubbleBefore = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
 
-            if (cloudData.rb_boutique_products !== undefined) {
-              state.products = normalizeFirebaseList(cloudData.rb_boutique_products);
-            } else {
-              state.products = [];
-            }
-            try { window.localStorage.setItem('rb_boutique_products', JSON.stringify(state.products)); } catch (e) {}
-            if (cloudData.rb_boutique_sales !== undefined) {
-              state.salesHistory = normalizeFirebaseList(cloudData.rb_boutique_sales);
-              try { window.localStorage.setItem('rb_boutique_sales', JSON.stringify(state.salesHistory)); } catch (e) {}
-            }
-            
-            if (cloudData.rb_boutique_vip_clients !== undefined) {
-              state.vipClients = normalizeFirebaseList(cloudData.rb_boutique_vip_clients);
-              if (state.currentUser && state.currentUser.id) {
-                const updatedSelf = state.vipClients.find(c => c.id === state.currentUser.id);
-                if (updatedSelf) {
-                  const incomingGift = updatedSelf.vipGift;
-                  const prevGift = state.currentUser.vipGift;
-                  if (incomingGift && !incomingGift.used && !isGiftExpired(incomingGift)) {
-                    const isNewGift = !prevGift || prevGift.createdAt !== incomingGift.createdAt || prevGift.message !== incomingGift.message;
-                    if (isNewGift || !incomingGift.notified) {
-                      state.showGiftCelebration = true;
-                      state.wheelRotation = 0;
-                      state.wheelSpinning = false;
-                    }
-                  }
-                  state.currentUser = updatedSelf;
-                  try { window.localStorage.setItem('rb_boutique_current_user', JSON.stringify(updatedSelf)); } catch (e) {}
-                }
-              }
-            }
-
-            if (cloudData.rb_boutique_petty_cash) state.pettyCash = cloudData.rb_boutique_petty_cash;
-            if (cloudData.rb_boutique_categories) state.visualCategories = normalizeFirebaseList(cloudData.rb_boutique_categories);
-            
-            // CORRECCIÓN MAGISTRAL DEL NODO VACÍO DE FIREBASE (|| [])
-            state.supportTickets = normalizeFirebaseList(cloudData.rb_boutique_tickets);
-            try { window.localStorage.setItem('rb_boutique_tickets', JSON.stringify(state.supportTickets)); } catch (e) {}
-
-            state.pendingWebOrders = normalizeFirebaseList(cloudData.rb_boutique_pending_orders);
-            try { window.localStorage.setItem('rb_boutique_pending_orders', JSON.stringify(state.pendingWebOrders)); } catch (e) {}
-
-            if (cloudData.rb_boutique_config) {
-              state.storeConfig = { ...state.storeConfig, ...cloudData.rb_boutique_config };
-            }
-
-            const hasBubbleNow = state.appMode === 'storefront' && state.authStatus === 'registered' && getClientActiveTickets().length > 0;
-
-            if (hadBubbleBefore && !hasBubbleNow) {
-              window.desintegrarBurbuja();
-            } else {
-              renderApp();
-            }
-          } else {
-            if (state.products.length > 0) saveStored('rb_boutique_products', state.products);
-            if (state.visualCategories.length > 0) saveStored('rb_boutique_categories', state.visualCategories);
-            if (state.storeConfig) saveStored('rb_boutique_config', state.storeConfig);
-          }
-        });
+        startPublicListeners();
       }
     } catch (error) { console.error("Firebase Init Error:", error); }
 
@@ -351,12 +575,13 @@
       currentUser: loadStored('rb_boutique_current_user', null),
       regForm: { name: '', email: '', phone: '', referralCode: '', googleVerified: false },
 
-      logoTapCount: 0, showAdminLoginModal: false, adminUser: '', adminPass: '',
-      pinAuthModal: null, confirmModal: null, editingClientModal: null, vipGiftModal: null,
+      logoTapCount: 0, showAdminLoginModal: false, adminLoginPending: false,
+      isAdmin: false, adminUid: '', adminEmail: '', adminCheckDone: false, adminListenersStarted: false, adminSetupUid: '',
+      confirmModal: null, editingClientModal: null, vipGiftModal: null,
       showNewCategoryModal: false, newCatForm: { label: '', badge: 'NEW', subcategoriesText: '' },
 
-      storeConfig: loadStored('rb_boutique_config', {
-        whatsappNumber: '5219991234567', bankName: 'BBVA México', accountHolder: 'Rebeca • RB Boutique Oficial', clabe: '012180015489632147', cardNumber: '4152 3138 7654 8910',
+      storeConfig: stripPublicConfig(loadStored('rb_boutique_config', {
+        whatsappNumber: '5219991234567',
         socialLinks: { instagram: 'https://instagram.com/rbboutique', facebook: 'https://facebook.com/RBBoutique', tiktok: 'https://tiktok.com/@rbboutique_oficial' },
         heroBanner: {
           badge: 'RB Boutique • Moda y Estilo',
@@ -364,20 +589,15 @@
           image: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1200&q=80',
           autoRotate: true
         },
-        authSecurity: {
-          adminUser: atob('UmViZWNhMjI='),
-          adminPass: atob('UmViZWNhMTk5NA=='),
-          supervisorPin: atob('MTk5NA==')
-        }
-      }),
+      })),
 
       visualCategories: loadStored('rb_boutique_categories', DEFAULT_VISUAL_CATEGORIES),
       products: loadStored('rb_boutique_products', []),
-      vipClients: loadStored('rb_boutique_vip_clients', []),
-      supportTickets: loadStored('rb_boutique_tickets', []),
+      vipClients: [],
+      supportTickets: [],
       visitorCount: initialVisits,
 
-      pettyCash: loadStored('rb_boutique_petty_cash', { openingBalance: 500, expenses: [] }),
+      pettyCash: { openingBalance: 500, expenses: [] },
       pettyCashModal: null,
 
       wishlist: loadStored('rb_boutique_wishlist', []),
@@ -393,23 +613,27 @@
       posSearch: '', posCart: [], posCustomerName: 'Cliente Mostrador',
       posPaymentStatus: '100', posDeliveryType: 'mostrador', posShippingFee: 80, posDeliveryAddress: '', posDeliveryMapUrl: '', posPaymentMethod: 'efectivo', cashReceived: '',
 
-      salesHistory: loadStored('rb_boutique_sales', []),
+      salesHistory: [],
+      productCosts: {}, privateConfig: {}, privateConfigLoaded: false, orderMetaCache: {}, cloudTrackedOrder: null,
       lastReceipt: null, showCorteModal: false, editingTicketModal: null,
       
       showNewProductModal: false, inventorySectionFilter: 'Todo', inventorySubcategoryFilter: 'Todo', isEditingProduct: false,
       newProd: { id: '', name: '', sku: '', category: 'Vestidos', subcategory: '', department: 'Mujer', price: '', originalPrice: '', cost: '', image: '', description: '', colorName: 'Negro', colorHex: '#18181b', adultSizes: { XS: 2, S: 4, M: 4, L: 2, XL: 1 }, kidsSizes: { '4': 2, '6': 4, '8': 4, '10': 2, '12': 2 }, shoeSizes: { '22': 1, '23': 3, '24': 4, '25': 4, '26': 3, '27': 2, '28': 1 }, unitallaStock: 10 }
     };
 
-    // Asegurar estructura de seguridad en storeConfig (migración automática a Firebase)
-    (function ensureSecurityConfig() {
-      if (!state.storeConfig.authSecurity) {
-        state.storeConfig.authSecurity = {
-          adminUser: atob('UmViZWNhMjI='),
-          adminPass: atob('UmViZWNhMTk5NA=='),
-          supervisorPin: atob('MTk5NA==')
-        };
-        saveStored('rb_boutique_config', state.storeConfig);
-      }
+    // RB v1-seguridad: limpiar cualquier resto viejo (credenciales / banco /
+    // comprobantes) que haya quedado guardado en el navegador de este equipo.
+    (function cleanupLegacySecretsFromBrowser() {
+      try {
+        const raw = window.localStorage.getItem('rb_boutique_config');
+        if (raw) {
+          const cfg = JSON.parse(raw);
+          const clean = stripPublicConfig(cfg);
+          if (JSON.stringify(clean) !== JSON.stringify(cfg)) window.localStorage.setItem('rb_boutique_config', JSON.stringify(clean));
+        }
+        ['rb_boutique_vip_clients', 'rb_boutique_sales', 'rb_boutique_tickets', 'rb_boutique_pending_orders', 'rb_boutique_petty_cash', 'rb_boutique_costs', 'rb_boutique_private_config'].forEach((k) => { try { window.localStorage.removeItem(k); } catch (e) {} });
+      } catch (e) {}
+      if (state.storeConfig) state.storeConfig = stripPublicConfig(state.storeConfig);
     })();
 
     // Función para archivar cupones en la Bóveda de Historial de Cupones (giftHistory)
@@ -582,8 +806,7 @@
     window.dismissGiftNotification = function() {
       if (!state.currentUser || !state.currentUser.vipGift) return;
       state.currentUser.vipGift.notifDismissed = true;
-      state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
-      saveStored('rb_boutique_vip_clients', state.vipClients);
+      saveVipClientsList();
       saveStored('rb_boutique_current_user', state.currentUser);
       showToast('🗑️ Notificación de premio ocultada de la bandeja');
       renderApp();
@@ -596,7 +819,7 @@
         }
         return t;
       });
-      saveStored('rb_boutique_tickets', state.supportTickets);
+      saveTicketsList();
       showToast('🗑️ Notificación de chat limpiada');
       renderApp();
     };
@@ -604,8 +827,7 @@
     window.clearAllClientNotifications = function() {
       if (state.currentUser && state.currentUser.vipGift) {
         state.currentUser.vipGift.notifDismissed = true;
-        state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
-        saveStored('rb_boutique_vip_clients', state.vipClients);
+        saveVipClientsList();
         saveStored('rb_boutique_current_user', state.currentUser);
       }
       let ticketsChanged = false;
@@ -616,7 +838,7 @@
         }
         return t;
       });
-      if (ticketsChanged) saveStored('rb_boutique_tickets', state.supportTickets);
+      if (ticketsChanged) saveTicketsList();
       showToast('✨ Bandeja de notificaciones limpia');
       renderApp();
     };
@@ -670,7 +892,7 @@
         state.supportTickets = [newTicket, ...(state.supportTickets || [])];
       }
 
-      saveStored('rb_boutique_tickets', state.supportTickets);
+      saveTicketsList();
       if (inputEl) inputEl.value = '';
       state.isSupportChatOpen = true;
       showToast('💬 Mensaje enviado a Soporte VIP');
@@ -694,7 +916,7 @@
       ticket.notifDismissedByClient = false;
       ticket.unreadByAdmin = false;
       state.adminReplyDrafts[ticket.id] = '';
-      saveStored('rb_boutique_tickets', state.supportTickets);
+      saveTicketsList();
       showToast(`✅ Respuesta enviada al chat flotante de ${ticket.customerName}`);
       renderApp();
     };
@@ -713,7 +935,7 @@
           }
           return t;
         });
-        if (changed) saveStored('rb_boutique_tickets', state.supportTickets);
+        if (changed) saveTicketsList();
       }
       renderApp();
     };
@@ -728,7 +950,7 @@
         state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
       }
       state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
-      saveStored('rb_boutique_vip_clients', state.vipClients);
+      saveVipClientsList();
       saveStored('rb_boutique_current_user', state.currentUser);
       state.showGiftCelebration = false;
       window.sendClientSupportMessage('🎉 ¡Hola RB Boutique! Gané el premio de $150 MXN en Efectivo en la Ruleta VIP y quiero reclamarlo en Soporte.');
@@ -745,7 +967,7 @@
         state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
       }
       state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
-      saveStored('rb_boutique_vip_clients', state.vipClients);
+      saveVipClientsList();
       saveStored('rb_boutique_current_user', state.currentUser);
       state.showGiftCelebration = false;
       state.isBagOpen = true;
@@ -759,8 +981,7 @@
         if (g.expiresAt && Date.now() > Number(g.expiresAt)) {
           archiveClientVipGift(state.currentUser, 'Expirado ⏰');
           state.currentUser.vipGift = null;
-          state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
-          saveStored('rb_boutique_vip_clients', state.vipClients);
+          saveVipClientsList();
           saveStored('rb_boutique_current_user', state.currentUser);
           state.showGiftCelebration = false;
           showToast('⏰ Tu cupón VIP ha expirado y pasó a tu historial', 'error');
@@ -844,35 +1065,38 @@
     // FLUJO PULIDO GOOGLE AUTH (PASO 1 -> PASO 2 CON TOKEN VÁLIDO)
     function handleGoogleUserAuthenticated(user) {
       if (!user || !user.email) return;
-      let existingClient = state.vipClients.find(c => c.email && c.email.toLowerCase() === user.email.toLowerCase());
-      if (existingClient) {
-        if (!Array.isArray(existingClient.giftHistory)) existingClient.giftHistory = [];
-        state.currentUser = existingClient;
-        saveStored('rb_boutique_current_user', existingClient);
-        state.authStatus = 'registered';
-        state.showAuthRegisterModal = false;
-        state.showGoogleFormInWelcome = false;
-        showToast(`¡Bienvenida de nuevo, ${existingClient.name}!`);
-        if (existingClient.vipGift && !existingClient.vipGift.used && !isGiftExpired(existingClient.vipGift) && !existingClient.vipGift.notified) {
-          state.showGiftCelebration = true;
-        }
-        renderApp();
-      } else {
-        state.regForm = {
-          name: user.displayName || '',
-          email: user.email || '',
-          phone: '',
-          referralCode: '',
-          googleVerified: true
-        };
-        if (state.authStatus === 'welcome') {
-          state.showGoogleFormInWelcome = true;
+      if (state.adminLoginPending) { window.checkAdminAccess(user, true); return; }
+      loadOwnVipRecordByEmail(user.email).then((existingClient) => {
+        if (existingClient) {
+          if (!Array.isArray(existingClient.giftHistory)) existingClient.giftHistory = [];
+          state.currentUser = existingClient;
+          saveStored('rb_boutique_current_user', existingClient);
+          state.authStatus = 'registered';
+          state.showAuthRegisterModal = false;
+          state.showGoogleFormInWelcome = false;
+          loadOwnTickets();
+          showToast(`¡Bienvenida de nuevo, ${existingClient.name}!`);
+          if (existingClient.vipGift && !existingClient.vipGift.used && !isGiftExpired(existingClient.vipGift) && !existingClient.vipGift.notified) {
+            state.showGiftCelebration = true;
+          }
+          renderApp();
         } else {
-          state.showAuthRegisterModal = true;
+          state.regForm = {
+            name: user.displayName || '',
+            email: user.email || '',
+            phone: '',
+            referralCode: '',
+            googleVerified: true
+          };
+          if (state.authStatus === 'welcome') {
+            state.showGoogleFormInWelcome = true;
+          } else {
+            state.showAuthRegisterModal = true;
+          }
+          showToast('✅ Cuenta Google verificada. Completa el Paso 2 (WhatsApp).');
+          renderApp();
         }
-        showToast('✅ Cuenta Google verificada. Completa el Paso 2 (WhatsApp).');
-        renderApp();
-      }
+      });
     }
 
     window.loginWithGoogle = function() {
@@ -886,7 +1110,8 @@
       // Vía principal única y síncrona: signInWithPopup
       window.auth.signInWithPopup(provider).then((result) => {
         if (result && result.user) {
-          handleGoogleUserAuthenticated(result.user);
+          if (state.adminLoginPending) { window.checkAdminAccess(result.user, true); }
+          else { handleGoogleUserAuthenticated(result.user); }
         }
       }).catch((err) => {
         console.warn("Google Popup aviso:", err);
@@ -909,44 +1134,45 @@
           return;
         }
 
-        let existingClient = state.vipClients.find(c =>
-          (cleanEmail && c.email && c.email.trim().toLowerCase() === cleanEmail) ||
-          (cleanPhone.length >= 10 && c.phone && c.phone.trim().replace(/\D/g, '') === cleanPhone)
-        );
-        if (existingClient) {
-          if (!Array.isArray(existingClient.giftHistory)) existingClient.giftHistory = [];
-          state.currentUser = existingClient;
-          saveStored('rb_boutique_current_user', existingClient);
-          state.authStatus = 'registered';
-          state.showAuthRegisterModal = false;
-          state.showGoogleFormInWelcome = false;
-          showToast(`🎉 ¡Bienvenida de nuevo, ${existingClient.name}!`);
+        loadOwnVipRecordByEmail(cleanEmail).then((existingClient) => {
+          if (existingClient) {
+            if (!Array.isArray(existingClient.giftHistory)) existingClient.giftHistory = [];
+            state.currentUser = existingClient;
+            saveStored('rb_boutique_current_user', existingClient);
+            state.authStatus = 'registered';
+            state.showAuthRegisterModal = false;
+            state.showGoogleFormInWelcome = false;
+            loadOwnTickets();
+            showToast(`🎉 ¡Bienvenida de nuevo, ${existingClient.name}!`);
+            renderApp();
+            return;
+          }
+
+          if (!name || !name.trim()) { showToast('Escribe tu nombre y apellido', 'error'); return; }
+          if (!cleanPhone || cleanPhone.length < 10) { showToast('Ingresa tu número de WhatsApp (10 dígitos)', 'error'); return; }
+
+          const newCode = name.trim().split(' ')[0].toUpperCase() + Math.floor(1000 + Math.random() * 9000);
+
+          let clientRecord = {
+              id: `VIP-${Date.now()}`, name: name.trim(), email: email.trim(), phone: cleanPhone, discountPct: 10, joinedAt: new Date().toLocaleDateString(), vipGift: null,
+              giftHistory: [],
+              referralCode: newCode, referredByCode: (referralCode || '').trim().toUpperCase(), hasMadePurchase: false, successfulReferrals: 0,
+              address: '', mapsUrl: ''
+          };
+
+          state.currentUser = clientRecord;
+          saveOwnVipRecord();
+          saveStored('rb_boutique_current_user', clientRecord);
+          state.authStatus = 'registered'; state.showAuthRegisterModal = false; state.showGoogleFormInWelcome = false;
+          showToast(`🎉 ¡Bienvenida ${clientRecord.name}! Tu 10% OFF VIP ya está activo.`);
           renderApp();
-          return;
-        }
-
-        if (!name || !name.trim()) { showToast('Escribe tu nombre y apellido', 'error'); return; }
-        if (!cleanPhone || cleanPhone.length < 10) { showToast('Ingresa tu número de WhatsApp (10 dígitos)', 'error'); return; }
-
-        const newCode = name.trim().split(' ')[0].toUpperCase() + Math.floor(1000 + Math.random() * 9000);
-        
-        let clientRecord = { 
-            id: `VIP-${Date.now()}`, name: name.trim(), email: email.trim(), phone: cleanPhone, discountPct: 10, joinedAt: new Date().toLocaleDateString(), vipGift: null,
-            giftHistory: [],
-            referralCode: newCode, referredByCode: (referralCode || '').trim().toUpperCase(), hasMadePurchase: false, successfulReferrals: 0,
-            address: '', mapsUrl: ''
-        };
-        
-        state.vipClients = [clientRecord, ...state.vipClients];
-        saveStored('rb_boutique_vip_clients', state.vipClients);
-        state.currentUser = clientRecord; saveStored('rb_boutique_current_user', clientRecord);
-        state.authStatus = 'registered'; state.showAuthRegisterModal = false; state.showGoogleFormInWelcome = false;
-        showToast(`🎉 ¡Bienvenida ${clientRecord.name}! Tu 10% OFF VIP ya está activo.`);
-        renderApp();
+        });
     };
 
     window.logoutApp = function() {
         if (window.auth) { window.auth.signOut().catch(() => {}); }
+        state.isAdmin = false; state.adminUid = ''; state.adminEmail = ''; state.adminCheckDone = false;
+        stopAdminListeners();
         state.currentUser = null; state.authStatus = 'welcome';
         state.clientBottomTab = 'home'; state.wishlist = []; state.customerCart = [];
         state.showGoogleFormInWelcome = false;
@@ -959,13 +1185,13 @@
     window.updateProfileData = function(field, value) {
         if(state.currentUser) {
             state.currentUser[field] = value;
-            state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
-            saveStored('rb_boutique_vip_clients', state.vipClients);
+            saveOwnVipRecord();
             saveStored('rb_boutique_current_user', state.currentUser);
         }
     };
 
     window.processReferralSuccess = function(vipClientName) {
+       if (!state.isAdmin) return; // v1-seguridad: los referidos se procesan en caja (admin).
        let client = state.vipClients.find(c => c.name.toLowerCase() === String(vipClientName || '').toLowerCase() || String(vipClientName || '').includes(c.name));
        if(client && !client.hasMadePurchase) {
            client.hasMadePurchase = true;
@@ -985,7 +1211,7 @@
                }
            }
        }
-       saveStored('rb_boutique_vip_clients', state.vipClients);
+       saveVipClientsList();
     };
 
     window.adjustVariantStock = function (productId, size, delta) {
@@ -1096,7 +1322,7 @@
           state.currentUser.vipGift.spun = true;
           state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
           state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
-          saveStored('rb_boutique_vip_clients', state.vipClients);
+          saveVipClientsList();
           saveStored('rb_boutique_current_user', state.currentUser);
           showToast(`🎉 ¡Felicidades! Ganaste tu cupón exclusivo (Válido por ${hrs} ${hrs === 1 ? 'hora' : 'horas'})`);
         }
@@ -1113,7 +1339,7 @@
           state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
         }
         state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
-        saveStored('rb_boutique_vip_clients', state.vipClients);
+        saveVipClientsList();
         saveStored('rb_boutique_current_user', state.currentUser);
       }
       state.showGiftCelebration = false;
@@ -1131,7 +1357,7 @@
           state.currentUser.vipGift.expiresAt = Date.now() + (hrs * 60 * 60 * 1000);
         }
         state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? { ...c, vipGift: state.currentUser.vipGift } : c);
-        saveStored('rb_boutique_vip_clients', state.vipClients);
+        saveVipClientsList();
         saveStored('rb_boutique_current_user', state.currentUser);
       }
       state.showGiftCelebration = false;
@@ -1147,33 +1373,30 @@
     window.handleSecretLogoTap = function () {
       state.logoTapCount += 1;
       if (tapTimer) clearTimeout(tapTimer);
-      if (state.logoTapCount >= 3) { state.logoTapCount = 0; state.showAdminLoginModal = true; renderApp(); } 
+      if (state.logoTapCount >= 3) { state.logoTapCount = 0; if (state.isAdmin) { state.appMode = 'backoffice'; state.backofficeTab = 'pos'; renderApp(); } else { state.showAdminLoginModal = true; renderApp(); } } 
       else { tapTimer = setTimeout(() => { state.logoTapCount = 0; }, 1400); }
     };
 
-    // VALIDACIÓN DE CREDENCIALES ADMIN DESDE FIREBASE CONFIG
+    // RB v1-seguridad: ya no hay usuario/contrasena en el codigo. El acceso es
+    // con Google + UID (loginAsAdminWithGoogle / checkAdminAccess, arriba).
     window.submitAdminLogin = function (e) {
       if (e) e.preventDefault();
-      const sec = state.storeConfig.authSecurity || {};
-      const expectedUser = sec.adminUser || atob('UmViZWNhMjI=');
-      const expectedPass = sec.adminPass || atob('UmViZWNhMTk5NA==');
-      if (state.adminUser.trim() === expectedUser && state.adminPass === expectedPass) {
-        state.showAdminLoginModal = false; state.adminUser = ''; state.adminPass = ''; 
-        state.appMode = 'backoffice'; state.backofficeTab = 'pos';
-        checkLowStockAlert(); showToast('🔓 Bienvenida al Punto de Venta');
-      } else { showToast('Usuario o contraseña incorrectos', 'error'); }
-      renderApp();
+      window.loginAsAdminWithGoogle();
     };
 
-    window.requestTicketPinAuth = function (action, data) { state.pinAuthModal = { action, data, pinInput: '' }; renderApp(); };
-
-    window.submitSupervisorPin = function (e) {
-      if (e) e.preventDefault(); if (!state.pinAuthModal) return;
-      const sec = state.storeConfig.authSecurity || {};
-      const expectedPin = sec.supervisorPin || atob('MTk5NA==');
-      if (state.pinAuthModal.pinInput !== expectedPin) { showToast('PIN incorrecto (Autorización denegada).', 'error'); return; }
-      const { action, data } = state.pinAuthModal; state.pinAuthModal = null;
-
+    // RB v1-seguridad: el PIN ya no existe. Las acciones sensibles exigen sesion
+    // de administradora (Google + UID) y, si destruyen datos, confirmacion.
+    window.requestSupervisorAction = function (action, data) {
+      if (!state.isAdmin) { showToast('Solo la administradora puede hacer esto. Entra con Google.', 'error'); return; }
+      if (action === 'refund' || action === 'delete') {
+        const msg = action === 'refund' ? '¿Aplicar devolución de este ticket y restaurar las prendas al inventario?' : '¿Eliminar esta venta definitivamente del historial?';
+        confirmAction(msg, () => { executeSupervisorAction(action, data); });
+        return;
+      }
+      executeSupervisorAction(action, data);
+    };
+    window.executeSupervisorAction = function (action, data) {
+      if (!state.isAdmin) { showToast('Solo la administradora puede hacer esto.', 'error'); return; }
       if (action === 'exit_pos') {
         state.appMode = 'storefront';
         state.clientBottomTab = 'home';
@@ -1193,9 +1416,9 @@
       }
       if (action === 'open_petty_expense') { state.pettyCashModal = { mode: 'expense', concept: '', amount: '' }; renderApp(); return; }
       if (action === 'open_petty_opening') { state.pettyCashModal = { mode: 'opening', concept: 'Fondo Inicial de Caja', amount: String(state.pettyCash.openingBalance || 500) }; renderApp(); return; }
-      
+
       const orderIndex = data; const order = state.salesHistory[orderIndex]; if (!order) return;
-      
+
       if (action === 'refund') {
         if (String(order.status).includes('Devuelto')) { showToast('Este ticket ya fue devuelto', 'error'); return; }
         if (order.itemsList) {
@@ -1273,7 +1496,7 @@
       state.vipClients[m.idx].name = String(m.name || '').trim();
       state.vipClients[m.idx].phone = String(m.phone || '').trim();
       state.vipClients[m.idx].email = String(m.email || '').trim();
-      saveStored('rb_boutique_vip_clients', state.vipClients);
+      saveVipClientsList();
       if (state.currentUser && state.currentUser.id === state.vipClients[m.idx].id) {
         state.currentUser = state.vipClients[m.idx];
         saveStored('rb_boutique_current_user', state.currentUser);
@@ -1335,7 +1558,7 @@
         createdAt: Date.now(),
         expiresAt: expTimestamp
       };
-      saveStored('rb_boutique_vip_clients', state.vipClients);
+      saveVipClientsList();
       if (state.currentUser && state.currentUser.id === state.vipClients[g.idx].id) {
         state.currentUser = state.vipClients[g.idx];
         saveStored('rb_boutique_current_user', state.currentUser);
@@ -1415,6 +1638,7 @@
       const colorHex = (p.colors && p.colors[0] && p.colors[0].hex) ? p.colors[0].hex : '#18181b';
       
       state.newProd = { ...p, subcategory: p.subcategory || '', colorName: colorName, colorHex: colorHex, adultSizes: { XS:0,S:0,M:0,L:0,XL:0 }, kidsSizes: { '4':0,'6':0,'8':0,'10':0,'12':0 }, shoeSizes: { '22':0,'23':0,'24':0,'25':0,'26':0,'27':0,'28':0 }, unitallaStock: 0 };
+      state.newProd.cost = (state.productCosts[p.id] && state.productCosts[p.id].cost) || 0; // v1-seguridad: el costo vive en el nodo privado
       
       const sizes = p.sizes || {};
       if (p.department === 'Accesorios') state.newProd.unitallaStock = sizes.UNITALLA || 0;
@@ -1446,7 +1670,6 @@
         department: np.department || 'Mujer',
         originalPrice: Number(np.originalPrice) || 0,
         price: priceNum,
-        cost: Number(np.cost) || 0,
         isTrending: true,
         isNew: !state.isEditingProduct,
         rating: 5.0,
@@ -1456,6 +1679,12 @@
         sizes: finalSizes,
         description: np.description || ''
       };
+      // RB v1-seguridad: el costo NO va en el producto publico. Va al nodo privado.
+      const prodCostValue = Number(np.cost) || 0;
+      if (window.dbRef && state.isAdmin) {
+        window.dbRef.child('rb_boutique_costs').child(obj.id).set({ cost: prodCostValue }).catch(() => {});
+        state.productCosts[obj.id] = { cost: prodCostValue };
+      }
 
       if (state.isEditingProduct) {
         state.products = state.products.map(p => p.id === obj.id ? obj : p);
@@ -1487,15 +1716,7 @@
       state.selectedProductModal = null; showToast(`🛍️ ¡Agregado a tu Carrito!`); renderApp();
     };
 
-    state.pendingWebOrders = loadStored('rb_boutique_pending_orders', []);
-    if (window.dbRef) {
-      window.dbRef.child('rb_boutique_pending_orders').on('value', (snap) => {
-        if (window.isSavingData) return;
-        state.pendingWebOrders = normalizeFirebaseList(snap.val());
-        try { window.localStorage.setItem('rb_boutique_pending_orders', JSON.stringify(state.pendingWebOrders)); } catch (e) {}
-        renderApp();
-      });
-    }
+    state.pendingWebOrders = []; // v1-seguridad: los pedidos web solo los escucha la administradora.
 
     window.handleCustomerCheckout = function () {
       if (state.customerCart.length === 0) return;
@@ -1514,8 +1735,7 @@
       if (state.currentUser && state.currentUser.vipGift && !state.currentUser.vipGift.savedForLater && !isGiftExpired(state.currentUser.vipGift)) {
         archiveClientVipGift(state.currentUser, 'Usado en Compra ✅');
         state.currentUser.vipGift = null;
-        state.vipClients = state.vipClients.map(c => c.id === state.currentUser.id ? state.currentUser : c);
-        saveStored('rb_boutique_vip_clients', state.vipClients);
+        saveVipClientsList();
         saveStored('rb_boutique_current_user', state.currentUser);
       }
 
@@ -1530,6 +1750,8 @@
         date: new Date().toLocaleDateString(),
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         customer: `${state.currentUser ? state.currentUser.name : 'Cliente Web'} (VIP)`,
+        customerId: state.currentUser ? state.currentUser.id : '',
+        email: state.currentUser ? state.currentUser.email : '',
         channel: 'Catálogo App',
         type: calc.isHomeDelivery ? '🛵 Domicilio (50% Anticipo)' : '🏪 Apartado (Mostrador)',
         method: 'TRANSFERENCIA',
@@ -1545,8 +1767,12 @@
       };
 
       // SE GUARDA EXCLUSIVAMENTE EN PEDIDOS PENDIENTES (NO TOCA EL HISTORIAL NI EL STOCK)
+      // v1-seguridad: alta con push, nunca reescribiendo la lista completa.
       state.pendingWebOrders = [newRecord, ...(state.pendingWebOrders || [])];
-      saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+      if (window.dbRef) { window.dbRef.child('rb_boutique_pending_orders').push(cleanRecordForSave(newRecord)).catch(() => {}); }
+      writeTrackingRecord(newRecord, 1);
+      state.activeTrackingFolio = folio;
+      try { window.localStorage.setItem('rb_boutique_active_folio', folio); } catch (e) {}
 
       state.whatsappCheckoutModal = { folio, calc, items: [...state.customerCart] };
       state.customerCart = [];
@@ -1695,6 +1921,7 @@
 
       state.salesHistory = [saleObj, ...state.salesHistory];
       saveStored('rb_boutique_sales', state.salesHistory);
+      if (isFromWeb) { writeTrackingRecord({ ...saleObj, status: 'Completado' }, 3); }
 
       if (state.posCustomerName && state.posCustomerName !== 'Cliente Mostrador') {
         processReferralSuccess(state.posCustomerName);
@@ -2324,8 +2551,7 @@
     function renderBackofficeHTML() {
       const posCalc = getPosCalculations();
       const corteCalc = getCorteZCalculations();
-      const sec = state.storeConfig.authSecurity || {};
-
+      
       return `
         <div class="min-h-screen bg-zinc-950 text-zinc-100 pb-12">
           <header class="sticky top-0 z-40 bg-zinc-900/95 backdrop-blur border-b border-zinc-800 px-4 py-3 shadow-lg">
@@ -2339,7 +2565,7 @@
                 <button onclick="state.backofficeTab='inventory'; renderApp();" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${state.backofficeTab === 'inventory' ? 'bg-pink-600 text-white shadow-md' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">📦 Inventario</button>
                 <button onclick="state.backofficeTab='clients'; renderApp();" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${state.backofficeTab === 'clients' ? 'bg-pink-600 text-white shadow-md' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">👥 Clientes VIP (${state.vipClients.length})</button>
                 <button onclick="state.backofficeTab='settings'; renderApp();" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${state.backofficeTab === 'settings' ? 'bg-pink-600 text-white shadow-md' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">⚙️ Ajustes y Reportes</button>
-                <button onclick="requestTicketPinAuth('exit_pos')" class="px-3 py-2 rounded-xl bg-white text-black text-xs font-black shrink-0 flex items-center gap-1.5 ml-2 hover:bg-zinc-200"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg> Salir a Tienda (PIN)</button>
+                <button onclick="requestSupervisorAction('exit_pos')" class="px-3 py-2 rounded-xl bg-white text-black text-xs font-black shrink-0 flex items-center gap-1.5 ml-2 hover:bg-zinc-200"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg> Salir a Tienda (PIN)</button>
               </div>
             </div>
           </header>
@@ -2364,10 +2590,10 @@
                       <span class="font-black text-pink-400 uppercase text-[11px]">🏦 1. Cuenta para Transferencia Bancaria (SPEI)</span>
                       <span class="text-[9px] bg-pink-500/20 text-pink-300 px-2 py-0.5 rounded font-bold">App Bancaria</span>
                     </div>
-                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Nombre del Banco (Transferencia)</label><input type="text" value="${state.storeConfig.bankName || ''}" oninput="state.storeConfig.bankName=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold" /></div>
-                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Titular de la Cuenta</label><input type="text" value="${state.storeConfig.accountHolder || ''}" oninput="state.storeConfig.accountHolder=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
-                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">CLABE Interbancaria (18 dígitos)</label><input type="text" value="${state.storeConfig.clabe || ''}" oninput="state.storeConfig.clabe=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div>
-                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Número de Tarjeta / Cuenta (Opcional)</label><input type="text" value="${state.storeConfig.cardNumber || ''}" oninput="state.storeConfig.cardNumber=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div>
+                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Nombre del Banco (Transferencia)</label><input type="text" value="${state.privateConfig.bankName || ''}" oninput="state.privateConfig.bankName=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold" /></div>
+                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Titular de la Cuenta</label><input type="text" value="${state.privateConfig.accountHolder || ''}" oninput="state.privateConfig.accountHolder=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
+                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">CLABE Interbancaria (18 dígitos)</label><input type="text" value="${state.privateConfig.clabe || ''}" oninput="state.privateConfig.clabe=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div>
+                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Número de Tarjeta / Cuenta (Opcional)</label><input type="text" value="${state.privateConfig.cardNumber || ''}" oninput="state.privateConfig.cardNumber=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-pink-400 font-mono font-bold" /></div>
                   </div>
 
                   <!-- SECCIÓN 2: DEPÓSITO EN OXXO / 7-ELEVEN -->
@@ -2376,10 +2602,10 @@
                       <span class="font-black text-amber-400 uppercase text-[11px]">🏪 2. Cuenta para Depósito en OXXO / 7-Eleven</span>
                       <span class="text-[9px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-bold">Efectivo en Caja</span>
                     </div>
-                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Banco o Entidad (Ej. Spin by OXXO, BBVA, BanCoppel)</label><input type="text" placeholder="Ej. Spin by OXXO / BBVA" value="${state.storeConfig.oxxoBankName || ''}" oninput="state.storeConfig.oxxoBankName=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold" /></div>
-                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Nombre del Beneficiario (OXXO / 7-Eleven)</label><input type="text" placeholder="Nombre del titular de esta tarjeta" value="${state.storeConfig.oxxoAccountHolder || ''}" oninput="state.storeConfig.oxxoAccountHolder=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
-                    <div><label class="text-[10px] font-bold text-amber-400 uppercase block mb-1">Número de Tarjeta para Dictar en Caja (16 dígitos)</label><input type="text" placeholder="4152 3138 0000 0000" value="${state.storeConfig.oxxoCardNumber || ''}" oninput="state.storeConfig.oxxoCardNumber=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-amber-500/50 text-amber-400 font-mono font-black text-sm" /></div>
-                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Instrucción o Nota en Caja (Opcional)</label><input type="text" placeholder="Ej. Conserva tu ticket impreso para enviar foto por WhatsApp" value="${state.storeConfig.oxxoNote || ''}" oninput="state.storeConfig.oxxoNote=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-300" /></div>
+                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Banco o Entidad (Ej. Spin by OXXO, BBVA, BanCoppel)</label><input type="text" placeholder="Ej. Spin by OXXO / BBVA" value="${state.privateConfig.oxxoBankName || ''}" oninput="state.privateConfig.oxxoBankName=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold" /></div>
+                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Nombre del Beneficiario (OXXO / 7-Eleven)</label><input type="text" placeholder="Nombre del titular de esta tarjeta" value="${state.privateConfig.oxxoAccountHolder || ''}" oninput="state.privateConfig.oxxoAccountHolder=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white" /></div>
+                    <div><label class="text-[10px] font-bold text-amber-400 uppercase block mb-1">Número de Tarjeta para Dictar en Caja (16 dígitos)</label><input type="text" placeholder="0000 0000 0000 0000" value="${state.privateConfig.oxxoCardNumber || ''}" oninput="state.privateConfig.oxxoCardNumber=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-amber-500/50 text-amber-400 font-mono font-black text-sm" /></div>
+                    <div><label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Instrucción o Nota en Caja (Opcional)</label><input type="text" placeholder="Ej. Conserva tu ticket impreso para enviar foto por WhatsApp" value="${state.privateConfig.oxxoNote || ''}" oninput="state.privateConfig.oxxoNote=this.value;" class="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-300" /></div>
                   </div>
                 </div>
 
@@ -2398,31 +2624,32 @@
                 </div>
               </div>
 
-              <!-- CREDENCIALES Y PIN EN FIREBASE CONFIG -->
-              <div class="p-6 bg-zinc-900 border border-amber-500/30 rounded-3xl space-y-4 shadow-lg">
+              <!-- ACCESO DE ADMINISTRADORA (v1-seguridad: sin contrasenas en el codigo) -->
+              <div class="p-6 bg-zinc-900 border border-emerald-500/30 rounded-3xl space-y-4 shadow-lg">
                 <div class="flex items-center gap-2.5">
-                  <div class="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-lg">🔐</div>
+                  <div class="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg">🔐</div>
                   <div>
-                    <h3 class="font-black text-white text-base">Seguridad y Credenciales en la Nube (Firebase)</h3>
-                    <p class="text-[11px] text-zinc-400">Administra tu usuario, contraseña de acceso y PIN de supervisión sincronizados en Firebase.</p>
+                    <h3 class="font-black text-white text-base">Acceso de Administradora (Google + UID)</h3>
+                    <p class="text-[11px] text-zinc-400">Ya no hay usuario, contraseña ni PIN en la tienda. Solo la cuenta de Google autorizada en Firebase puede entrar al Punto de Venta.</p>
                   </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                  <div>
-                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Usuario Admin</label>
-                    <input type="text" value="${(sec.adminUser || '').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.authSecurity) state.storeConfig.authSecurity={}; state.storeConfig.authSecurity.adminUser=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold" />
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div class="p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+                    <span class="text-[10px] font-bold text-zinc-400 uppercase block">Cuenta administradora</span>
+                    <span class="text-white font-bold block mt-1 break-all">${state.adminEmail || 'Sin sesión admin en este momento'}</span>
                   </div>
-                  <div>
-                    <label class="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Contraseña Admin</label>
-                    <input type="password" value="${(sec.adminPass || '').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.authSecurity) state.storeConfig.authSecurity={}; state.storeConfig.authSecurity.adminPass=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold" />
-                  </div>
-                  <div>
-                    <label class="text-[10px] font-bold text-amber-400 uppercase block mb-1">PIN Supervisor (4 dígitos)</label>
-                    <input type="password" maxlength="4" value="${(sec.supervisorPin || '').replace(/"/g, '&quot;')}" oninput="if(!state.storeConfig.authSecurity) state.storeConfig.authSecurity={}; state.storeConfig.authSecurity.supervisorPin=this.value;" class="w-full p-3 rounded-xl bg-zinc-950 border border-amber-500/50 text-amber-400 font-mono font-black text-center tracking-widest" />
+                  <div class="p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+                    <span class="text-[10px] font-bold text-zinc-400 uppercase block">UID de Google</span>
+                    <span class="text-emerald-400 font-mono font-bold block mt-1 break-all">${state.adminUid || state.adminSetupUid || '—'}</span>
                   </div>
                 </div>
+                <div class="flex flex-wrap gap-2">
+                  <button onclick="migrateCostsToPrivate()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow">📦 Migrar costos viejos a nodo privado</button>
+                  <button onclick="cleanupPublicConfigSecrets()" class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs shadow">🧹 Limpiar datos viejos del config público</button>
+                </div>
+                <p class="text-[11px] text-zinc-400 leading-relaxed">Para autorizar una cuenta: en Firebase Console → Realtime Database → rb_boutique_data → adminUids → agrega la UID con valor <span class="font-mono text-emerald-400">true</span>. La UID aparece también en el modal de acceso cuando una cuenta no autorizada intenta entrar.</p>
               </div>
-              
+
               <!-- IDENTIDAD DE MARCA (LOGO VIP) -->
               <div class="p-6 bg-zinc-900 border border-pink-500/30 rounded-3xl space-y-4 shadow-lg mb-6">
                 <div class="flex items-center gap-2.5">
@@ -2492,7 +2719,7 @@
                 </div>
               </div>
 
-              <div class="flex justify-end"><button onclick="saveStored('rb_boutique_config', state.storeConfig); showToast('✅ Configuración, Seguridad y Portada guardadas en Firebase'); renderApp();" class="px-6 py-3.5 bg-pink-600 hover:bg-pink-500 text-white font-black text-sm rounded-2xl shadow-lg">💾 Guardar Ajustes y Seguridad</button></div>
+              <div class="flex justify-end"><button onclick="saveAllSettings();" class="px-6 py-3.5 bg-pink-600 hover:bg-pink-500 text-white font-black text-sm rounded-2xl shadow-lg">💾 Guardar Ajustes y Seguridad</button></div>
 
               <!-- BANDEJA DE SOPORTE CON CIERRE Y DESINTEGRACIÓN DE BURBUJA -->
               <div class="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl mt-4 shadow-lg">
@@ -2512,7 +2739,7 @@
                           <span class="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300">📱 ${t.phone}</span>
                           ${t.unreadByAdmin ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">Nuevo Mensaje</span>` : ''}
                         </div>
-                        <button onclick="confirmAction('¿Marcar conversación como resuelta? Esto desintegrará en partículas y cerrará la burbuja de chat en la pantalla de la clienta.', () => { state.supportTickets.splice(${idx}, 1); saveStored('rb_boutique_tickets', state.supportTickets); state.pendingBubbleDisintegration = true; showToast('✨ Caso resuelto • Burbuja desintegrada en el dispositivo de la clienta'); })" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl font-black transition">Resuelto ✓</button>
+                        <button onclick="confirmAction('¿Marcar conversación como resuelta? Esto desintegrará en partículas y cerrará la burbuja de chat en la pantalla de la clienta.', () => { state.supportTickets.splice(${idx}, 1); saveTicketsList(); state.pendingBubbleDisintegration = true; showToast('✨ Caso resuelto • Burbuja desintegrada en el dispositivo de la clienta'); })" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl font-black transition">Resuelto ✓</button>
                       </div>
 
                       <div class="space-y-2 max-h-44 overflow-y-auto pr-1">
@@ -2552,7 +2779,7 @@
                         <button onclick="openVipGiftSender(${idx})" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 font-black text-white shadow-md"><span>🎡</span> Regalo / Tiempo</button>
                         <div class="flex gap-1.5">
                           <button onclick="openEditVipClientModal(${idx})" class="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold transition">✏️ Editar</button>
-                          <button onclick="confirmAction('¿Eliminar cliente?', () => { state.vipClients.splice(${idx}, 1); saveStored('rb_boutique_vip_clients', state.vipClients); showToast('Eliminado'); })" class="px-3 py-2.5 rounded-xl bg-rose-500/20 text-rose-400 font-bold">🗑️</button>
+                          <button onclick="confirmAction('¿Eliminar cliente?', () => { state.vipClients.splice(${idx}, 1); saveVipClientsList(); showToast('Eliminado'); })" class="px-3 py-2.5 rounded-xl bg-rose-500/20 text-rose-400 font-bold">🗑️</button>
                         </div>
                       </div>
                     </div>
@@ -2567,7 +2794,7 @@
                 <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">${['Todo', ...state.visualCategories.filter(c => c.id !== 'Todo').map(c => c.id), 'Niñas', 'Niños'].map(cat => `<button onclick="state.inventorySectionFilter='${cat}'; state.inventorySubcategoryFilter='Todo'; renderApp();" class="px-4 py-1.5 rounded-xl text-xs font-bold transition shrink-0 ${state.inventorySectionFilter === cat ? 'bg-white text-black' : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'}">${cat}</button>`).join('')}</div>
                 ${getCategorySubcategories(state.inventorySectionFilter).length > 0 ? `<div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar pl-1 animate-fade"><span class="text-[10px] font-black uppercase text-pink-400 shrink-0">Subcategoría ${state.inventorySectionFilter}:</span>${['Todo', ...getCategorySubcategories(state.inventorySectionFilter)].map(sub => `<button onclick="state.inventorySubcategoryFilter='${sub}'; renderApp();" class="px-3 py-1 rounded-lg text-[11px] font-bold transition shrink-0 ${state.inventorySubcategoryFilter === sub ? 'bg-pink-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'}">${sub}</button>`).join('')}</div>` : ''}
               </div>
-              <div class="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden overflow-x-auto shadow-lg"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-zinc-950 text-zinc-400 uppercase text-[10px] tracking-wider"><th class="p-4">Artículo / SKU</th><th class="p-4">Precio Oferta / Normal</th><th class="p-4">Existencias por Talla (Rojo Neón = Bajo Stock / 0)</th><th class="p-4 text-center">Acciones</th></tr></thead><tbody class="divide-y divide-zinc-800/60">${state.products.filter(p => { const matchSec = state.inventorySectionFilter === 'Todo' || p.category === state.inventorySectionFilter || p.department === state.inventorySectionFilter; const subList = getCategorySubcategories(state.inventorySectionFilter); const matchSub = subList.length === 0 || state.inventorySubcategoryFilter === 'Todo' || (p.subcategory && p.subcategory.toLowerCase() === state.inventorySubcategoryFilter.toLowerCase()); return matchSec && matchSub; }).map(prod => `<tr class="hover:bg-zinc-800/40 transition"><td class="p-4 flex items-center gap-3"><img src="${prod.image}" class="w-11 h-14 rounded-lg object-cover border border-zinc-700 shrink-0"/> <div><p class="font-bold text-white text-sm line-clamp-1">${prod.name}</p><div class="flex flex-wrap items-center gap-1.5 mt-1"><span class="text-[10px] font-mono bg-zinc-800 px-1.5 py-0.5 rounded text-pink-400">${prod.sku}</span><span class="text-[10px] text-zinc-400">${prod.department} • ${prod.category}</span>${prod.subcategory ? `<span class="text-[10px] font-black bg-pink-500/20 text-pink-300 border border-pink-500/30 px-2 py-0.5 rounded-full">↳ ${prod.subcategory}</span>` : ''}</div></div></td><td class="p-4"><p class="font-black text-emerald-400 text-sm">$${prod.price} MXN</p>${prod.originalPrice > prod.price ? `<p class="text-[10px] text-zinc-400 line-through mt-0.5">Original: $${prod.originalPrice}</p>` : ''}</td><td class="p-4"><div class="flex flex-wrap gap-1.5">${Object.entries(prod.sizes).map(([sz, q]) => `<div class="flex items-center gap-1.5 bg-zinc-950 px-2.5 py-1 rounded-xl border ${Number(q) <= 2 ? 'neon-alert' : 'border-zinc-800'}"><span class="font-bold text-[10px]">${sz}:</span><span class="font-mono font-black text-xs">${q}</span><div class="flex items-center gap-1 ml-1"><button onclick="adjustVariantStock('${prod.id}', '${sz}', -1)" class="w-5 h-5 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center text-xs font-black leading-none">-</button><button onclick="adjustVariantStock('${prod.id}', '${sz}', 1)" class="w-5 h-5 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center text-xs font-black leading-none">+</button></div></div>`).join('')}</div></td><td class="p-4 text-center"><div class="flex justify-center gap-2"><button onclick="editProduct('${prod.id}')" class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-bold shadow-sm">✏️ Modificar</button><button onclick="confirmAction('¿Eliminar este producto?', () => { state.products=state.products.filter(p=>p.id!=='${prod.id}'); saveStored('rb_boutique_products', state.products); })" class="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-lg font-bold shadow-sm">🗑️</button></div></td></tr>`).join('')}</tbody></table></div>
+              <div class="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden overflow-x-auto shadow-lg"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-zinc-950 text-zinc-400 uppercase text-[10px] tracking-wider"><th class="p-4">Artículo / SKU</th><th class="p-4">Precio Oferta / Normal</th><th class="p-4">Costo / Margen</th><th class="p-4">Existencias por Talla (Rojo Neón = Bajo Stock / 0)</th><th class="p-4 text-center">Acciones</th></tr></thead><tbody class="divide-y divide-zinc-800/60">${state.products.filter(p => { const matchSec = state.inventorySectionFilter === 'Todo' || p.category === state.inventorySectionFilter || p.department === state.inventorySectionFilter; const subList = getCategorySubcategories(state.inventorySectionFilter); const matchSub = subList.length === 0 || state.inventorySubcategoryFilter === 'Todo' || (p.subcategory && p.subcategory.toLowerCase() === state.inventorySubcategoryFilter.toLowerCase()); return matchSec && matchSub; }).map(prod => `<tr class="hover:bg-zinc-800/40 transition"><td class="p-4 flex items-center gap-3"><img src="${prod.image}" class="w-11 h-14 rounded-lg object-cover border border-zinc-700 shrink-0"/> <div><p class="font-bold text-white text-sm line-clamp-1">${prod.name}</p><div class="flex flex-wrap items-center gap-1.5 mt-1"><span class="text-[10px] font-mono bg-zinc-800 px-1.5 py-0.5 rounded text-pink-400">${prod.sku}</span><span class="text-[10px] text-zinc-400">${prod.department} • ${prod.category}</span>${prod.subcategory ? `<span class="text-[10px] font-black bg-pink-500/20 text-pink-300 border border-pink-500/30 px-2 py-0.5 rounded-full">↳ ${prod.subcategory}</span>` : ''}</div></div></td><td class="p-4"><p class="font-black text-emerald-400 text-sm">$${prod.price} MXN</p>${prod.originalPrice > prod.price ? `<p class="text-[10px] text-zinc-400 line-through mt-0.5">Original: $${prod.originalPrice}</p>` : ''}</td><td class="p-4">${(() => { const cst = (state.productCosts[prod.id] && state.productCosts[prod.id].cost) || 0; const mg = prod.price > 0 ? Math.round(((prod.price - cst) / prod.price) * 100) : 0; return `<p class="font-bold text-white text-sm">$${cst} MXN</p><p class="text-[10px] text-zinc-400 mt-0.5">Margen ${mg}%</p>`; })()}</td><td class="p-4"><div class="flex flex-wrap gap-1.5">${Object.entries(prod.sizes).map(([sz, q]) => `<div class="flex items-center gap-1.5 bg-zinc-950 px-2.5 py-1 rounded-xl border ${Number(q) <= 2 ? 'neon-alert' : 'border-zinc-800'}"><span class="font-bold text-[10px]">${sz}:</span><span class="font-mono font-black text-xs">${q}</span><div class="flex items-center gap-1 ml-1"><button onclick="adjustVariantStock('${prod.id}', '${sz}', -1)" class="w-5 h-5 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center text-xs font-black leading-none">-</button><button onclick="adjustVariantStock('${prod.id}', '${sz}', 1)" class="w-5 h-5 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center text-xs font-black leading-none">+</button></div></div>`).join('')}</div></td><td class="p-4 text-center"><div class="flex justify-center gap-2"><button onclick="editProduct('${prod.id}')" class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-bold shadow-sm">✏️ Modificar</button><button onclick="confirmAction('¿Eliminar este producto?', () => { state.products=state.products.filter(p=>p.id!=='${prod.id}'); saveStored('rb_boutique_products', state.products); })" class="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-lg font-bold shadow-sm">🗑️</button></div></td></tr>`).join('')}</tbody></table></div>
             </main>
           ` : `
             <main class="max-w-[1400px] mx-auto px-4 py-6 animate-fade">
@@ -2607,6 +2834,7 @@
                         return s;
                       });
                       saveStored('rb_boutique_pending_orders', state.pendingWebOrders);
+                      writeTrackingRecord({ id: saleId, status: 'Surtiendo Pedido 📦', trackingStep: 2 }, 2);
                       showToast('📦 Pago confirmado. El cliente ahora ve: "Tu pedido se está surtiendo"');
                       renderApp();
                     };
@@ -2757,7 +2985,7 @@
 
                 <div class="lg:col-span-5 space-y-5">
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg space-y-3.5">
-                    <div class="flex items-center justify-between"><div><span class="text-[10px] font-black uppercase tracking-wider text-emerald-400">💰 Control de Efectivo Físico (${corteCalc.todayDateStr})</span><h3 class="font-black text-white text-sm">Gestor de Caja Chica del Día</h3></div><div class="flex gap-1.5"><button onclick="requestTicketPinAuth('open_petty_opening')" class="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-200">🔒 Fondo Inicial</button><button onclick="requestTicketPinAuth('open_petty_expense')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/20 text-[10px] font-black text-amber-300">🔒 - Retirar Gasto</button></div></div>
+                    <div class="flex items-center justify-between"><div><span class="text-[10px] font-black uppercase tracking-wider text-emerald-400">💰 Control de Efectivo Físico (${corteCalc.todayDateStr})</span><h3 class="font-black text-white text-sm">Gestor de Caja Chica del Día</h3></div><div class="flex gap-1.5"><button onclick="requestSupervisorAction('open_petty_opening')" class="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-200">🔒 Fondo Inicial</button><button onclick="requestSupervisorAction('open_petty_expense')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/20 text-[10px] font-black text-amber-300">🔒 - Retirar Gasto</button></div></div>
                     <div class="grid grid-cols-3 gap-2 text-center bg-zinc-950 p-3 rounded-2xl border border-zinc-800 text-xs"><div><span class="text-[10px] text-zinc-400 block">Fondo Inicial</span><span class="font-black text-white text-sm">$${corteCalc.openingCash}</span></div><div class="border-x border-zinc-800"><span class="text-[10px] text-zinc-400 block">+ Ventas Hoy</span><span class="font-black text-emerald-400 text-sm">+$${corteCalc.totalEfectivoVentas}</span></div><div><span class="text-[10px] text-zinc-400 block">- Gastos Hoy</span><span class="font-black text-rose-400 text-sm">-$${corteCalc.totalExpenses}</span></div></div>
                     <div class="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30"><span class="text-xs font-bold text-emerald-200">Efectivo Exacto en Cajón (Hoy):</span><span class="text-lg font-black text-emerald-400">$${corteCalc.exactPhysicalCashInDrawer} MXN</span></div>
                   </div>
@@ -2770,7 +2998,7 @@
                         return `
                         <div class="p-4 rounded-2xl bg-zinc-950 border border-zinc-800/90 flex flex-col gap-2.5 relative">
                           <div class="flex justify-between items-start gap-2"><div><div class="flex items-center gap-2 mb-1"><span class="font-mono font-black text-[11px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded border border-pink-500/20">${sale.id}</span><span class="text-[10px] text-zinc-500">${sale.date || ''} • ${sale.time || ''}</span></div><span class="font-bold text-white text-xs block">${sale.customer}</span><p class="text-[10px] text-zinc-400 mt-0.5"><strong class="uppercase">${sale.method}</strong></p></div><div class="text-right"><p class="font-black text-emerald-400 text-base">$${sale.total}</p><span class="inline-block mt-1 px-2 py-0.5 rounded bg-zinc-800 text-white font-bold text-[9px] uppercase">${sale.status || 'Completado'}</span></div></div>
-                          <div class="flex flex-wrap gap-1.5 pt-2 border-t border-zinc-800/60"><button onclick="state.lastReceipt = state.salesHistory[${idx}]; renderApp();" class="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-bold text-[10px] text-zinc-200">🧾 Ticket</button><button onclick="requestTicketPinAuth('edit', ${idx})" class="px-2.5 py-1.5 bg-zinc-800 rounded-lg font-bold text-[10px] text-white">🔒 Modificar</button><button onclick="requestTicketPinAuth('refund', ${idx})" class="px-2.5 py-1.5 bg-rose-500/10 text-rose-400 rounded-lg font-bold text-[10px]">🔒 Devolver</button><button onclick="requestTicketPinAuth('delete', ${idx})" class="px-2.5 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg font-bold text-[10px] transition">🗑️ Eliminar</button></div>
+                          <div class="flex flex-wrap gap-1.5 pt-2 border-t border-zinc-800/60"><button onclick="state.lastReceipt = state.salesHistory[${idx}]; renderApp();" class="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-bold text-[10px] text-zinc-200">🧾 Ticket</button><button onclick="requestSupervisorAction('edit', ${idx})" class="px-2.5 py-1.5 bg-zinc-800 rounded-lg font-bold text-[10px] text-white">🔒 Modificar</button><button onclick="requestSupervisorAction('refund', ${idx})" class="px-2.5 py-1.5 bg-rose-500/10 text-rose-400 rounded-lg font-bold text-[10px]">🔒 Devolver</button><button onclick="requestSupervisorAction('delete', ${idx})" class="px-2.5 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg font-bold text-[10px] transition">🗑️ Eliminar</button></div>
                           ${sale.method !== 'EFECTIVO' && !String(sale.status).includes('Devuelto') ? `<div class="flex items-center justify-between gap-2 pt-2 border-t border-zinc-900 text-[10px]"><span class="font-bold text-amber-400">Banco: ${sale.bankStatus || 'Pendiente'}</span><div class="flex gap-1.5"><button onclick="state.salesHistory[${idx}].bankStatus='Verificado en Banco ✅'; state.salesHistory[${idx}].status='Pago Confirmado'; saveStored('rb_boutique_sales', state.salesHistory); processReferralSuccess('${sale.customer}'); renderApp(); showToast('✅ Pago verificado');" class="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded-lg font-bold">✅ Verificado</button></div></div>` : ''}
                         </div>
                         `;
@@ -2873,12 +3101,9 @@
       }
 
       if (state.showAdminLoginModal) {
-        html += `<div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-pink-500/50 text-white flex items-center justify-center font-serif italic font-black text-2xl relative overflow-hidden shadow-[0_0_15px_rgba(236,72,153,0.3)]"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; state.adminUser=''; state.adminPass=''; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="space-y-4"><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Usuario</label><input type="text" required value="${state.adminUser}" oninput="state.adminUser=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div><div><label class="block text-[11px] font-bold text-zinc-400 mb-1.5 uppercase">Contraseña</label><input type="password" required value="${state.adminPass}" oninput="state.adminPass=this.value;" class="w-full px-4 py-3.5 rounded-xl bg-zinc-950 border border-zinc-700 text-sm text-white" /></div></div><button type="submit" class="w-full py-4 rounded-xl bg-pink-600 font-black text-sm text-white shadow-[0_0_20px_rgba(219,39,119,0.3)]">Entrar al Punto de Venta</button></form></div>`;
+        html += `<div class="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitAdminLogin(event)" class="bg-zinc-900 border border-pink-500/40 text-white rounded-3xl max-w-sm w-full p-7 space-y-6 shadow-2xl animate-fade relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-600 to-rose-500"></div><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-pink-500/50 text-white flex items-center justify-center font-serif italic font-black text-2xl relative overflow-hidden shadow-[0_0_15px_rgba(236,72,153,0.3)]"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div><div><h3 class="font-black text-lg text-white">Acceso Administrativo</h3><span class="text-[10px] text-pink-400 font-bold uppercase">Punto de Venta</span></div></div><button type="button" onclick="state.showAdminLoginModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button></div><div class="space-y-4"><p class="text-xs text-zinc-300 leading-relaxed">El acceso de administradora es con tu cuenta de Google. No hay contraseña en la tienda: tu cuenta debe estar autorizada en Firebase (adminUids).</p>${state.adminSetupUid ? `<div class="p-3 rounded-xl bg-zinc-950 border border-amber-500/50 text-xs"><p class="text-amber-400 font-black mb-1">Tu UID de Google (para autorizarla en Firebase):</p><p class="font-mono text-white break-all">${state.adminSetupUid}</p><p class="text-zinc-400 mt-1">Cópiala en Firebase Console → Realtime Database → rb_boutique_data → adminUids → ${state.adminSetupUid} = true</p></div>` : ''}</div><button type="submit" class="w-full py-4 rounded-xl bg-white text-zinc-900 font-black text-sm shadow-xl">Continuar con Google como Administradora</button></form></div>`;
       }
 
-      if (state.pinAuthModal) {
-        html += `<div class="fixed inset-0 z-[92] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print"><form onsubmit="submitSupervisorPin(event)" class="bg-zinc-900 border-2 border-amber-500/60 text-white rounded-3xl max-w-xs w-full p-7 space-y-5 animate-fade shadow-2xl"><div class="flex justify-between items-center"><h3 class="font-black text-base text-amber-400">🔒 PIN DE SUPERVISIÓN</h3><button type="button" onclick="state.pinAuthModal=null; renderApp();" class="text-zinc-500 hover:text-white">✕</button></div><input type="password" maxlength="4" required autofocus value="${state.pinAuthModal.pinInput}" oninput="state.pinAuthModal.pinInput=this.value;" placeholder="••••" class="w-full text-center py-4 bg-zinc-950 border border-amber-500 text-2xl tracking-[0.5em] rounded-xl outline-none"/><button type="submit" class="w-full py-3.5 bg-amber-500 text-black font-black text-sm rounded-xl">Autorizar</button></form></div>`;
-      }
 
       if (state.editingTicketModal) {
         const et = state.editingTicketModal;
@@ -3822,63 +4047,35 @@
         // METADATOS DE PEDIDOS (ENVÍO Y FOTO DEL TICKET) SINCRONIZADOS EN FIREBASE
         window.getOrderExtraMeta = function (folio) {
           if (!folio) return {};
-          const fromConfig = (state.storeConfig && state.storeConfig.ordersExtraMeta && state.storeConfig.ordersExtraMeta[folio])
-            ? state.storeConfig.ordersExtraMeta[folio]
-            : null;
-          if (fromConfig) return fromConfig;
+          const key = String(folio);
+          if (state.orderMetaCache && state.orderMetaCache[key]) return state.orderMetaCache[key];
           try {
             const localMeta = JSON.parse(window.localStorage.getItem('rb_boutique_orders_meta') || '{}');
-            return localMeta[folio] || {};
-          } catch (e) {
-            return {};
-          }
+            if (localMeta[key]) return localMeta[key];
+          } catch (e) {}
+          loadOrderMeta(key);
+          return {};
         };
 
         window.saveOrderExtraMeta = function (folio, dataObj) {
           if (!folio) return;
-          if (!state.storeConfig) state.storeConfig = {};
-          if (!state.storeConfig.ordersExtraMeta || typeof state.storeConfig.ordersExtraMeta !== 'object') {
-            state.storeConfig.ordersExtraMeta = {};
-          }
-          const current = window.getOrderExtraMeta(folio);
-          const merged = { ...current, ...dataObj, updatedAt: Date.now() };
-          state.storeConfig.ordersExtraMeta[folio] = merged;
-
-          // Conservar solo los 25 pedidos más recientes para mantener rápida la base de datos
-          const allKeys = Object.keys(state.storeConfig.ordersExtraMeta);
-          if (allKeys.length > 25) {
-            allKeys
-              .sort((a, b) => (state.storeConfig.ordersExtraMeta[a].updatedAt || 0) - (state.storeConfig.ordersExtraMeta[b].updatedAt || 0))
-              .slice(0, allKeys.length - 25)
-              .forEach(k => delete state.storeConfig.ordersExtraMeta[k]);
-          }
-
+          const realFolio = String(folio);
+          if (!state.orderMetaCache) state.orderMetaCache = {};
+          const current = state.orderMetaCache[realFolio] || {};
+          const merged = { ...current, ...dataObj, folio: realFolio, updatedAt: Date.now() };
+          state.orderMetaCache[realFolio] = merged;
           try {
-            window.localStorage.setItem('rb_boutique_orders_meta', JSON.stringify(state.storeConfig.ordersExtraMeta));
+            const localMeta = JSON.parse(window.localStorage.getItem('rb_boutique_orders_meta') || '{}');
+            localMeta[realFolio] = merged;
+            window.localStorage.setItem('rb_boutique_orders_meta', JSON.stringify(localMeta));
           } catch (e) {}
-
-          // Actualizar también dentro del pedido en pendingWebOrders si existe
-          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
-          let updatedPending = false;
-          pendingList.forEach(o => {
-            if (o && o.id === folio) {
-              Object.assign(o, merged);
-              updatedPending = true;
-            }
-          });
-          if (updatedPending) {
-            state.pendingWebOrders = pendingList;
-            try {
-              for (let i = 0; i < window.localStorage.length; i++) {
-                const k = window.localStorage.key(i);
-                if (k && /(pending|web_order|webOrder)/i.test(k)) {
-                  saveStored(k, state.pendingWebOrders);
-                }
-              }
-            } catch (e) {}
+          // v1-seguridad: el comprobante va a su nodo por folio, NO al config publico.
+          if (window.dbRef) {
+            window.dbRef.child('rb_boutique_order_meta').child(realFolio).set(cleanRecordForSave(merged)).catch(() => {});
           }
-
-          saveStored('rb_boutique_config', state.storeConfig);
+          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+          const targetOrder = pendingList.find(o => o && String(o.id) === realFolio);
+          if (targetOrder) Object.assign(targetOrder, merged);
         };
 
         // SUBIR Y COMPRIMIR FOTO DEL TICKET / CAPTURA DEL CLIENTE
@@ -4162,7 +4359,7 @@
           const realId = String(foundOrd.id || folio || '');
           const custKey = 'CUST_' + String(foundOrd.customer || foundOrd.clientName || foundOrd.userName || '').trim().toLowerCase();
 
-          let metaMap = (state.storeConfig && state.storeConfig.ordersExtraMeta) || {};
+          let metaMap = (state.orderMetaCache || {});
           try {
             const localMeta = JSON.parse(window.localStorage.getItem('rb_boutique_orders_meta') || '{}');
             metaMap = { ...localMeta, ...metaMap };
@@ -4170,7 +4367,7 @@
 
           const byFolio = metaMap[realId] || metaMap[folio] || {};
           const byCust = custKey !== 'CUST_' ? (metaMap[custKey] || {}) : {};
-          let lastGlobal = (state.storeConfig && state.storeConfig.lastUploadedReceipt) || null;
+          let lastGlobal = null;
           if (!lastGlobal) {
             try { lastGlobal = JSON.parse(window.localStorage.getItem('rb_boutique_last_receipt') || 'null'); } catch (e) {}
           }
@@ -4219,70 +4416,36 @@
         };
 
         window.getOrderExtraMeta = function (folio) {
-          return window.resolveOrderReceiptData(folio, null);
+          if (!folio) return {};
+          const key = String(folio);
+          if (state.orderMetaCache && state.orderMetaCache[key]) return state.orderMetaCache[key];
+          try {
+            const localMeta = JSON.parse(window.localStorage.getItem('rb_boutique_orders_meta') || '{}');
+            if (localMeta[key]) return localMeta[key];
+          } catch (e) {}
+          loadOrderMeta(key);
+          return {};
         };
 
         window.saveOrderExtraMeta = function (folio, dataObj) {
-          if (!state.storeConfig) state.storeConfig = {};
-          if (!state.storeConfig.ordersExtraMeta || typeof state.storeConfig.ordersExtraMeta !== 'object') {
-            state.storeConfig.ordersExtraMeta = {};
-          }
-
-          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
-          let targetOrder = pendingList.find(o => o && (String(o.id) === String(folio) || String(o.folio) === String(folio)));
-          if (!targetOrder && pendingList.length > 0) {
-            targetOrder = pendingList[pendingList.length - 1];
-          }
-
-          const realFolio = String((targetOrder && targetOrder.id) || folio || 'ORDER');
-          const current = state.storeConfig.ordersExtraMeta[realFolio] || {};
+          if (!folio) return;
+          const realFolio = String(folio);
+          if (!state.orderMetaCache) state.orderMetaCache = {};
+          const current = state.orderMetaCache[realFolio] || {};
           const merged = { ...current, ...dataObj, folio: realFolio, updatedAt: Date.now() };
-
-          state.storeConfig.ordersExtraMeta[realFolio] = merged;
-          if (folio && String(folio) !== realFolio) {
-            state.storeConfig.ordersExtraMeta[String(folio)] = merged;
-          }
-
-          if (targetOrder) {
-            Object.assign(targetOrder, merged);
-            const custName = String(targetOrder.customer || targetOrder.clientName || targetOrder.userName || '').trim().toLowerCase();
-            if (custName) {
-              state.storeConfig.ordersExtraMeta['CUST_' + custName] = merged;
-            }
-          }
-
-          if (dataObj && dataObj.receiptImage) {
-            state.storeConfig.lastUploadedReceipt = merged;
-            try { window.localStorage.setItem('rb_boutique_last_receipt', JSON.stringify(merged)); } catch (e) {}
-          }
-
+          state.orderMetaCache[realFolio] = merged;
           try {
-            window.localStorage.setItem('rb_boutique_orders_meta', JSON.stringify(state.storeConfig.ordersExtraMeta));
+            const localMeta = JSON.parse(window.localStorage.getItem('rb_boutique_orders_meta') || '{}');
+            localMeta[realFolio] = merged;
+            window.localStorage.setItem('rb_boutique_orders_meta', JSON.stringify(localMeta));
           } catch (e) {}
-
-          // Sincronizar con la llave exacta de pendingWebOrders en el código fuente y en localStorage
-          state.pendingWebOrders = pendingList;
-          const pendingKeys = new Set(['rb_boutique_pending_orders', 'rb_boutique_web_orders']);
-          try {
-            const allScripts = Array.from(document.scripts || []).map(s => s.textContent || '').join('\n');
-            const matches = allScripts.match(/saveStored\(\s*['"]([^'"]+)['"]\s*,\s*state\.pendingWebOrders/g) || [];
-            matches.forEach(m => {
-              const k = m.match(/['"]([^'"]+)['"]/);
-              if (k && k[1]) pendingKeys.add(k[1]);
-            });
-            for (let i = 0; i < window.localStorage.length; i++) {
-              const lk = window.localStorage.key(i);
-              const lv = window.localStorage.getItem(lk) || '';
-              if (lk && lv.includes(realFolio) && lv.startsWith('[')) {
-                pendingKeys.add(lk);
-              }
-            }
-          } catch (e) {}
-
-          pendingKeys.forEach(k => {
-            try { saveStored(k, state.pendingWebOrders); } catch (e) {}
-          });
-          saveStored('rb_boutique_config', state.storeConfig);
+          // v1-seguridad: el comprobante va a su nodo por folio, NO al config publico.
+          if (window.dbRef) {
+            window.dbRef.child('rb_boutique_order_meta').child(realFolio).set(cleanRecordForSave(merged)).catch(() => {});
+          }
+          const pendingList = normalizeFirebaseList(state.pendingWebOrders);
+          const targetOrder = pendingList.find(o => o && String(o.id) === realFolio);
+          if (targetOrder) Object.assign(targetOrder, merged);
         };
 
         window.handleClientReceiptUpload = function (inputEl, folio, paymentMethodLabel) {
@@ -4538,10 +4701,10 @@
           try { window.localStorage.setItem('rb_boutique_active_folio', w.folio); } catch (e) {}
         }
         const payTab = w.payTab || 'transfer';
-        const oxxoBank = state.storeConfig.oxxoBankName || state.storeConfig.bankName || 'Depósito en Efectivo';
-        const oxxoHolder = state.storeConfig.oxxoAccountHolder || state.storeConfig.accountHolder || 'RB Boutique';
-        const oxxoCard = state.storeConfig.oxxoCardNumber || state.storeConfig.cardNumber || '';
-        const oxxoNote = state.storeConfig.oxxoNote || 'Dicta los 16 dígitos en caja de OXXO o 7-Eleven y conserva tu ticket impreso.';
+        const oxxoBank = state.privateConfig.oxxoBankName || state.privateConfig.bankName || 'Depósito en Efectivo';
+        const oxxoHolder = state.privateConfig.oxxoAccountHolder || state.privateConfig.accountHolder || 'RB Boutique';
+        const oxxoCard = state.privateConfig.oxxoCardNumber || state.privateConfig.cardNumber || '';
+        const oxxoNote = state.privateConfig.oxxoNote || 'Dicta los 16 dígitos en caja de OXXO o 7-Eleven y conserva tu ticket impreso.';
         const metodoTexto = payTab === 'oxxo' ? 'Depósito en OXXO / 7-Eleven' : 'Transferencia Bancaria';
 
         const meta = window.getOrderExtraMeta(w.folio);
@@ -4590,11 +4753,11 @@
               <div class="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs font-mono space-y-2.5">
                 ${payTab === 'transfer' ? `
                   <div class="bg-zinc-900 p-3 rounded-xl border border-pink-500/30 space-y-1.5">
-                    <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Banco:</span><span class="font-black text-white text-sm">${state.storeConfig.bankName}</span></div>
-                    <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Titular:</span><span class="text-white font-sans font-bold">${state.storeConfig.accountHolder}</span></div>
-                    <div class="flex justify-between items-center pt-1 border-t border-zinc-800"><span class="text-zinc-400">CLABE:</span><span class="font-black text-pink-400 text-sm">${state.storeConfig.clabe}</span></div>
-                    ${state.storeConfig.cardNumber ? `<div class="flex justify-between items-center"><span class="text-zinc-400">Tarjeta:</span><span class="font-bold text-zinc-200">${state.storeConfig.cardNumber}</span></div>` : ''}
-                    <button type="button" onclick="copiarYMinimizarPago('${state.storeConfig.clabe}', '📋 CLABE copiada al portapapeles', '${w.folio}')" class="mt-1.5 w-full py-2 bg-pink-600 hover:bg-pink-500 rounded-xl font-sans font-black text-white shadow transition">📋 Copiar CLABE</button>
+                    <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Banco:</span><span class="font-black text-white text-sm">${state.privateConfig.bankName}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-zinc-400 font-sans text-[11px]">Titular:</span><span class="text-white font-sans font-bold">${state.privateConfig.accountHolder}</span></div>
+                    <div class="flex justify-between items-center pt-1 border-t border-zinc-800"><span class="text-zinc-400">CLABE:</span><span class="font-black text-pink-400 text-sm">${state.privateConfig.clabe}</span></div>
+                    ${state.privateConfig.cardNumber ? `<div class="flex justify-between items-center"><span class="text-zinc-400">Tarjeta:</span><span class="font-bold text-zinc-200">${state.privateConfig.cardNumber}</span></div>` : ''}
+                    <button type="button" onclick="copiarYMinimizarPago('${state.privateConfig.clabe}', '📋 CLABE copiada al portapapeles', '${w.folio}')" class="mt-1.5 w-full py-2 bg-pink-600 hover:bg-pink-500 rounded-xl font-sans font-black text-white shadow transition">📋 Copiar CLABE</button>
                   </div>
                 ` : `
                   <div class="bg-zinc-900 p-3 rounded-xl border border-amber-500/40 space-y-2">
@@ -4657,6 +4820,15 @@
           } else if (inSales) {
             trackedOrder = inSales;
             currentStep = 3;
+          } else if (state.cloudTrackedOrder && state.cloudTrackedOrder.id === savedFolio) {
+            trackedOrder = state.cloudTrackedOrder;
+            currentStep = Number(state.cloudTrackedOrder.trackingStep) || 1;
+          } else if (!state.trackingLoading) {
+            state.trackingLoading = true;
+            loadTrackingRecord(savedFolio).then((rec) => {
+              state.trackingLoading = false;
+              if (rec) { state.cloudTrackedOrder = rec; renderApp(); }
+            });
           }
         }
 
@@ -5168,6 +5340,11 @@
 
     function renderApp() {
       const root = document.getElementById('app'); if (!root) return;
+      // v1-seguridad: los datos de pago solo se leen cuando hay un cobro en pantalla.
+      if (state.whatsappCheckoutModal && !state.privateConfigLoaded && !state.privateConfigLoading && window.dbRef) {
+        state.privateConfigLoading = true;
+        ensurePaymentConfigLoaded().then(() => { state.privateConfigLoading = false; renderApp(); });
+      }
       const activeEl = document.activeElement; const actTag = activeEl ? activeEl.tagName : null; const actPh = activeEl ? activeEl.getAttribute('placeholder') : null; const cStart = activeEl && typeof activeEl.selectionStart === 'number' ? activeEl.selectionStart : null;
       root.innerHTML = (state.appMode === 'storefront' ? renderStorefrontHTML() : renderBackofficeHTML()) + renderModalsHTML();
       if (actTag === 'INPUT' && actPh) { const rest = root.querySelector(`input[placeholder="${actPh}"]`); if (rest) { rest.focus(); if (cStart !== null && rest.type === 'text') { try { rest.setSelectionRange(cStart, cStart); } catch (e) {} } } }
