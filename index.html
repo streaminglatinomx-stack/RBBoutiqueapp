@@ -1965,18 +1965,18 @@
             </div>
 
             <div class="w-full max-w-md md:w-[46%] mx-auto md:mx-0 pb-2 space-y-5">
-              <div class="bg-black/45 backdrop-blur-2xl border border-white/25 rounded-[32px] p-6 shadow-2xl space-y-5 animate-fade">
+              <div class="bg-black/45 backdrop-blur-2xl border-2 border-pink-500/80 rounded-[32px] p-6 shadow-[0_0_30px_rgba(236,72,153,0.45),0_0_80px_rgba(236,72,153,0.25)] space-y-5 animate-fade">
               ${!state.showGoogleFormInWelcome ? `
                 <div class="text-center space-y-2 mb-1">
-                  <span class="inline-block px-4 py-1.5 rounded-full bg-pink-500/90 border border-pink-300/50 text-white text-[11px] font-black uppercase tracking-wider">✨ CLUB VIP • OBTÉN 10% OFF EN AUTOMÁTICO</span>
+                  <span class="inline-block px-4 py-1.5 rounded-full bg-pink-500 border border-pink-300 text-white text-[11px] font-black uppercase tracking-wider shadow-[0_0_20px_rgba(236,72,153,0.9)]">✨ CLUB VIP • OBTÉN 10% OFF EN AUTOMÁTICO</span>
                   <p class="text-xs text-zinc-200">Conecta tu cuenta de Google para activar tu 10% de descuento permanente y premios exclusivos.</p>
                 </div>
                 <div class="space-y-3 pt-1">
-                  <button onclick="loginWithGoogle()" class="w-full py-4 px-4 rounded-2xl bg-white text-zinc-900 font-black text-sm shadow-xl flex items-center justify-center gap-3 hover:scale-[1.02] transition">
+                  <button onclick="loginWithGoogle()" class="w-full py-4 px-4 rounded-2xl bg-white text-zinc-900 font-black text-sm shadow-[0_0_22px_rgba(255,255,255,0.35)] flex items-center justify-center gap-3 hover:scale-[1.02] transition">
                     <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.9C3.5 21.4 7.4 24 12 24z"/></svg>
                     <span>Continuar con Google (Recibir 10% OFF)</span>
                   </button>
-                  <button onclick="state.authStatus='guest'; state.currentUser=null; renderApp();" class="w-full py-3.5 px-4 rounded-2xl bg-white/10 border border-white/25 text-white font-bold text-xs hover:bg-white/20 transition">Entrar como Invitado</button>
+                  <button onclick="state.authStatus='guest'; state.currentUser=null; renderApp();" class="w-full py-3.5 px-4 rounded-2xl bg-pink-500/10 border border-pink-400/80 text-white font-bold text-xs shadow-[0_0_16px_rgba(236,72,153,0.35)] hover:bg-pink-500/20 transition">Entrar como Invitado</button>
                 </div>
               ` : `
                 <form onsubmit="submitCompleteRegistration(event)" class="space-y-3.5 animate-fade">
