@@ -1956,14 +1956,14 @@
     function renderWelcomeAccessScreenHTML() {
       return `
         <div class="min-h-screen relative bg-black text-white overflow-x-hidden select-none">
-          <img src="https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1400&q=85" class="absolute inset-0 w-full h-full object-cover" />
-          <div class="absolute inset-0 bg-gradient-to-b from-black/75 via-black/55 to-black/95"></div>
-          <div class="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/40 hidden md:block"></div>
+          <img src="portada.jpg" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1400&q=85';" class="absolute inset-0 w-full h-full object-cover" />
+          <div class="absolute inset-0 bg-gradient-to-b from-black/60 via-black/35 to-black/85"></div>
+          <div class="absolute inset-0 bg-gradient-to-r from-black/45 via-transparent to-black/30 hidden md:block"></div>
 
           <div class="relative z-10 min-h-screen w-full max-w-6xl mx-auto px-5 py-10 flex flex-col justify-between md:flex-row md:items-center md:gap-12 animate-fade">
             <div class="flex flex-col items-center text-center md:items-start md:text-left gap-5 pt-6 md:pt-0 md:w-[46%]">
               <button onclick="handleSecretLogoTap()" class="flex flex-col items-center md:items-start focus:outline-none group">
-                <img src="logo.png" alt="RB Boutique" class="w-52 md:w-72 h-auto mix-blend-screen" onerror="this.style.display='none';var f=document.getElementById('rbLogoFallback');if(f)f.style.display='flex';" />
+                <img src="logo.png" alt="RB Boutique" class="w-52 md:w-72 h-auto drop-shadow-[0_2px_16px_rgba(0,0,0,0.65)]" onerror="this.style.display='none';var f=document.getElementById('rbLogoFallback');if(f)f.style.display='flex';" />
                 <span id="rbLogoFallback" style="display:none" class="flex-col items-center md:items-start gap-3">
                   <span class="relative w-24 h-24 flex items-center justify-center">
                     <span class="absolute inset-0 rounded-full border border-pink-300/30"></span>
