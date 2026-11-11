@@ -351,6 +351,7 @@
     }
     function startAdminListeners() {
       if (!window.dbRef || !state.isAdmin || window.adminListenersStarted) return;
+      stopOwnTicketsListener(); // v2.6: manda el listener del admin, no el propio
       window.adminListenersStarted = true;
       const on = (key, apply) => {
         window.dbRef.child(key).on('value', (snap) => {
@@ -428,11 +429,47 @@
       // escribe por _fbKey); nunca se reescribe la lista completa.
       (state.supportTickets || []).forEach((tk) => { if (tk && tk.id) saveOwnTicket(tk); });
     }
+    // v2.6: la clienta ESCUCHA EN VIVO sus propios chats (antes era .once()
+    // y solo se cargaban al entrar). La consulta por email ya la permiten
+    // las reglas (tickets con query email == auth.token.email). El admin NO
+    // usa este listener: sus tickets en vivo vienen de startAdminListeners.
+    function stopOwnTicketsListener() {
+      if (window.__rbTicketsQuery) { try { window.__rbTicketsQuery.off(); } catch (e) {} window.__rbTicketsQuery = null; window.__rbTicketsEmail = null; }
+    }
     function loadOwnTickets() {
       if (!state.currentUser || !state.currentUser.email || !window.dbRef) return;
-      window.dbRef.child('rb_boutique_tickets').orderByChild('email').equalTo(state.currentUser.email).once('value')
-        .then((snap) => { const v = snap.val(); state.supportTickets = v ? normalizeFirebaseMap(v) : []; renderApp(); })
-        .catch(() => {});
+      if (state.isAdmin || window.adminListenersStarted) return;
+      const email = String(state.currentUser.email);
+      if (window.__rbTicketsQuery && window.__rbTicketsEmail === email) return;
+      stopOwnTicketsListener();
+      const q = window.dbRef.child('rb_boutique_tickets').orderByChild('email').equalTo(email);
+      window.__rbTicketsQuery = q;
+      window.__rbTicketsEmail = email;
+      q.on('value', (snap) => {
+        if (state.isAdmin || window.adminListenersStarted) return;
+        const v = snap ? snap.val() : null;
+        const prevActive = getClientActiveTickets();
+        // v2.6: en la clienta solo se guardan sus chats ACTIVOS (el Resuelto
+        // sale de su lista; el listener del admin guarda la lista completa).
+        state.supportTickets = v ? normalizeFirebaseMap(v).filter((t) => t && t.status !== 'Resuelto') : [];
+        const nowActive = getClientActiveTickets();
+        // v2.6: si el ultimo chat abierto se resolvio, la burbuja se cierra
+        // sola con su animacion (antes solo se borraba en la pantalla del
+        // admin y la clienta no se enteraba hasta actualizar).
+        if (prevActive.length > 0 && nowActive.length === 0) {
+          showToast('✨ Tu chat con RB Boutique fue resuelto');
+          if (state.isSupportChatOpen || document.getElementById('floating-support-bubble-btn')) window.desintegrarBurbuja();
+        }
+        // Preservar lo que la clienta esta escribiendo: renderApp()
+        // reconstruye el chat flotante y su input no guarda borrador.
+        const _d1 = document.getElementById('floating-chat-input');
+        const _draftChat = _d1 ? _d1.value : '';
+        const _d2 = document.getElementById('support-msg');
+        const _draftSupport = _d2 ? _d2.value : '';
+        renderApp(); renderOverlays();
+        if (_draftChat) { const _el = document.getElementById('floating-chat-input'); if (_el) _el.value = _draftChat; }
+        if (_draftSupport) { const _el = document.getElementById('support-msg'); if (_el) _el.value = _draftSupport; }
+      }, () => {});
     }
     // --- Datos de pago privados: solo se leen cuando se van a mostrar ---
     function ensurePaymentConfigLoaded() {
@@ -560,7 +597,7 @@
 
         window.auth.onAuthStateChanged((user) => {
           if (!user) {
-            if (typeof state !== 'undefined' && state.isAdmin) { state.isAdmin = false; state.appMode = 'storefront'; stopAdminListeners(); renderApp(); }
+            if (typeof state !== 'undefined' && state.isAdmin) { state.isAdmin = false; state.appMode = 'storefront'; stopAdminListeners(); } stopOwnTicketsListener(); renderApp();
             return;
           }
           if (typeof state === 'undefined') return;
@@ -623,6 +660,7 @@
       pendingBubbleDisintegration: false,
       activeBannerIdx: 0,
       adminReplyDrafts: {},
+      posSupportSelectedId: null,
       
       authStatus: loadStored('rb_boutique_current_user', null) ? 'registered' : 'welcome', 
       showGoogleFormInWelcome: false, showAuthRegisterModal: false, registerModalReason: null,
@@ -975,6 +1013,19 @@
       renderApp();
     };
 
+    // v2.6: resolver es un cierre DE VERDAD en Firebase (antes solo hacia
+    // splice en la lista local del admin: la clienta no se enteraba y el
+    // ticket podia reaparecer). Se marca status 'Resuelto' por _fbKey, sin
+    // reescribir la lista completa.
+    window.resolveSupportTicket = function (idx) {
+      const tk = (state.supportTickets || [])[idx];
+      if (!tk) return;
+      tk.status = 'Resuelto';
+      saveOwnTicket(tk);
+      showToast('✅ Caso resuelto • La clienta lo verá cerrado en su pantalla');
+      renderApp();
+    };
+
     window.openClientFloatingChat = function() {
       if (state.isBubbleDisintegrating) return;
       state.isSupportChatOpen = !state.isSupportChatOpen;
@@ -1227,6 +1278,7 @@
         if (window.auth) { window.auth.signOut().catch(() => {}); }
         state.isAdmin = false; state.adminUid = ''; state.adminEmail = ''; state.adminCheckDone = false;
         stopAdminListeners();
+        stopOwnTicketsListener();
         state.currentUser = null; state.authStatus = 'welcome';
         state.clientBottomTab = 'home'; state.wishlist = []; state.customerCart = [];
         state.showGoogleFormInWelcome = false;
@@ -2901,7 +2953,7 @@
           <header class="sticky top-0 z-40 bg-zinc-900/95 backdrop-blur border-b border-zinc-800 px-4 py-3 shadow-lg">
             <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-zinc-900 to-black border border-zinc-600 flex items-center justify-center font-serif italic font-black text-lg text-white shadow-lg relative overflow-hidden"><div class="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent"></div><span class="pr-0.5 uppercase">${state.storeConfig.brandInitials || 'RB'}</span></div>
+                <img src="logo-rb.png" alt="RB Boutique" class="w-10 h-10 rounded-full object-cover border border-zinc-600 shadow-lg" onerror="this.style.display='none'" />
                 <div><h1 class="font-black text-base text-white leading-tight">RB BOUTIQUE • PUNTO DE VENTA</h1><p class="text-[10px] text-zinc-400">Panel Administrativo Central</p></div>
               </div>
               <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
@@ -2909,7 +2961,7 @@
                 <button onclick="state.backofficeTab='inventory'; renderApp();" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${state.backofficeTab === 'inventory' ? 'bg-pink-600 text-white shadow-md' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">📦 Inventario</button>
                 <button onclick="state.backofficeTab='clients'; renderApp();" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${state.backofficeTab === 'clients' ? 'bg-pink-600 text-white shadow-md' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">👥 Clientes VIP (${state.vipClients.length})</button>
                 <button onclick="state.backofficeTab='settings'; renderApp();" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${state.backofficeTab === 'settings' ? 'bg-pink-600 text-white shadow-md' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">⚙️ Ajustes y Reportes</button>
-                <button onclick="requestSupervisorAction('exit_pos')" class="px-3 py-2 rounded-xl bg-white text-black text-xs font-black shrink-0 flex items-center gap-1.5 ml-2 hover:bg-zinc-200"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg> Salir a Tienda (PIN)</button>
+                <button onclick="requestSupervisorAction('exit_pos')" class="px-3 py-2 rounded-xl bg-white text-black text-xs font-black shrink-0 flex items-center gap-1.5 ml-2 hover:bg-zinc-200"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg> Salir de Tienda</button>
               </div>
             </div>
           </header>
@@ -3108,12 +3160,12 @@
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="font-black text-white text-base">💬 Bandeja de Reportes y Chat en Vivo VIP</h3>
-                    <p class="text-[11px] text-zinc-400">Responde aquí para activar la burbuja de chat flotante en el celular de la clienta. Al marcar "Resuelto ✓", su burbuja se desintegra en partículas.</p>
+                    <p class="text-[11px] text-zinc-400">Responde aquí para activar la burbuja de chat flotante en el celular de la clienta. Al marcar "Resuelto ✓", su chat se cierra en su pantalla.</p>
                   </div>
-                  <span class="px-3 py-1 rounded-full bg-zinc-800 text-xs font-bold text-pink-400">${state.supportTickets.length}</span>
+                  <span class="px-3 py-1 rounded-full bg-zinc-800 text-xs font-bold text-pink-400">${(state.supportTickets || []).filter(t => t && t.status !== 'Resuelto').length}</span>
                 </div>
                 <div class="space-y-3.5">
-                  ${state.supportTickets.length === 0 ? `<div class="p-8 text-center text-zinc-500 text-sm bg-zinc-950 rounded-2xl border border-zinc-800 border-dashed">No hay chats ni reportes pendientes.</div>` : state.supportTickets.map((t, idx) => `
+                  ${(state.supportTickets || []).filter(t => t && t.status !== 'Resuelto').length === 0 ? `<div class="p-8 text-center text-zinc-500 text-sm bg-zinc-950 rounded-2xl border border-zinc-800 border-dashed">No hay chats ni reportes pendientes.</div>` : state.supportTickets.map((t, idx) => (t && t.status === 'Resuelto') ? '' : `
                     <div class="p-4 bg-zinc-950 rounded-2xl border ${t.unreadByAdmin ? 'border-pink-500' : 'border-zinc-800'} text-xs space-y-3">
                       <div class="flex flex-wrap justify-between items-center gap-2 border-b border-zinc-800 pb-2.5">
                         <div class="flex flex-wrap items-center gap-2">
@@ -3121,7 +3173,7 @@
                           <span class="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300">📱 ${t.phone}</span>
                           ${t.unreadByAdmin ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase animate-pulse">Nuevo Mensaje</span>` : ''}
                         </div>
-                        <button onclick="confirmAction('¿Marcar conversación como resuelta? Esto desintegrará en partículas y cerrará la burbuja de chat en la pantalla de la clienta.', () => { state.supportTickets.splice(${idx}, 1); saveTicketsList(); state.pendingBubbleDisintegration = true; showToast('✨ Caso resuelto • Burbuja desintegrada en el dispositivo de la clienta'); })" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl font-black transition">Resuelto ✓</button>
+                        <button onclick="confirmAction('¿Marcar conversación como resuelta? La clienta verá su chat cerrado en su pantalla.', () => { resolveSupportTicket(${idx}); })" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl font-black transition">Resuelto ✓</button>
                       </div>
 
                       <div class="space-y-2 max-h-44 overflow-y-auto pr-1">
@@ -3180,8 +3232,15 @@
             </main>
           ` : `
             <main class="max-w-[1400px] mx-auto px-4 py-6 animate-fade">
+              <div class="flex items-center gap-2 mb-5 overflow-x-auto pb-1 no-scrollbar">
+                <span class="shrink-0 px-3 py-2 rounded-xl text-xs font-black ${((state.pendingWebOrders || []).length > 0) ? 'bg-pink-600 text-white shadow-md' : 'bg-emerald-600 text-white'}">Step 1 &bull; 1. Confirmar Pago</span>
+                <span class="text-pink-400 font-black shrink-0">&rarr;</span>
+                <span class="shrink-0 px-3 py-2 rounded-xl text-xs font-black ${state.activeWebOrderId ? 'bg-pink-600 text-white shadow-md' : 'bg-zinc-800 text-zinc-400'}">Step 2 &bull; 2. Enlazar a Caja / Cobrar</span>
+                <span class="text-pink-400 font-black shrink-0">&rarr;</span>
+                <span class="shrink-0 px-3 py-2 rounded-xl text-xs font-black bg-zinc-800 text-zinc-400">Step 3 &bull; 3. Listo para entrega</span>
+              </div>
               <div class="grid grid-cols-1 lg:grid-cols-12 gap-7">
-                <div class="lg:col-span-7 space-y-5">
+                <div class="lg:col-span-6 space-y-5">
                 ${(() => {
                     window.addPosItemFromSearch = function (productId) {
                       const p = (state.products || []).find(x => String(x.id) === String(productId));
@@ -3363,17 +3422,13 @@
                                   </div>
                                   ${hasReceipt ? `<button type="button" onclick="openReceiptImagePreview('${ord.id}')" class="px-2.5 py-1.5 rounded-lg bg-zinc-800 text-white font-black text-[10px]">Ver comprobante</button>` : ''}
                                 </div>
-                                <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800/80">
-                                  <button type="button" onclick="confirmarPagoPedidoWeb('${ord.id}')" class="flex-1 min-w-[140px] px-3 py-2.5 rounded-xl font-black text-[11px] transition ${isSurtiendo ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}">
+                                <div class="pt-2 border-t border-zinc-800/80 space-y-2">
+                                  <div class="flex flex-wrap items-center gap-2"><button type="button" onclick="confirmarPagoPedidoWeb('${ord.id}')" class="flex-1 min-w-[140px] px-3 py-2.5 rounded-xl font-black text-[11px] transition ${isSurtiendo ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}">
                                     ${isSurtiendo ? '✓ 1. Pago Confirmado (Surtiendo)' : '✅ 1. Confirmar Pago (Surtiendo)'}
-                                  </button>
-                                  <button type="button" onclick="rechazarPagoPedidoWeb('${ord.id}')" class="px-3 py-2.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 border border-amber-500/40 font-black text-[11px] transition">✖️ Rechazar</button>
-                                  ${waPhone ? `<a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" rel="noopener" class="px-3 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 font-black text-[11px] transition">💬 WhatsApp</a>` : ''}
-                                  <button type="button" onclick="marcarListoPedidoWeb('${ord.id}')" class="flex-1 min-w-[140px] px-3 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black text-[11px] transition">🎉 3. Listo para entrega${isDelivery && balance > 0 ? ' (+$' + balance + ' resto)' : ''}</button>
-                                  <button type="button" onclick="enlazarPedidoWebACaja('${ord.id}')" class="px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-black text-[11px] transition ${state.activeWebOrderId === ord.id ? 'ring-1 ring-emerald-500/60 text-emerald-300' : ''}">
+                                  </button><button type="button" onclick="enlazarPedidoWebACaja('${ord.id}')" class="flex-1 min-w-[140px] px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-black text-[11px] transition ${state.activeWebOrderId === ord.id ? 'ring-1 ring-emerald-500/60 text-emerald-300' : ''}">
                                     ${state.activeWebOrderId === ord.id ? '✓ Enlazado en Caja' : '🔗 2. Enlazar a Caja'}
-                                  </button>
-                                  <button type="button" onclick="descartarPedidoWeb('${ord.id}')" class="px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-rose-600 text-zinc-400 hover:text-white font-black text-[11px] transition" title="Cancelar pedido (la clienta lo verá en su pantalla)">🗑️</button>
+                                  </button><button type="button" onclick="marcarListoPedidoWeb('${ord.id}')" class="flex-1 min-w-[140px] px-3 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black text-[11px] transition">🎉 3. Listo para entrega${isDelivery && balance > 0 ? ' (+$' + balance + ' resto)' : ''}</button></div>
+                                  <div class="flex flex-wrap items-center gap-2"><button type="button" onclick="rechazarPagoPedidoWeb('${ord.id}')" class="px-3 py-2.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 border border-amber-500/40 font-black text-[11px] transition">✖️ Rechazar</button>${waPhone ? `<a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" rel="noopener" class="px-3 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 font-black text-[11px] transition">💬 WhatsApp</a>` : ''}<button type="button" onclick="descartarPedidoWeb('${ord.id}')" class="px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-rose-600 text-zinc-400 hover:text-white font-black text-[11px] transition" title="Cancelar pedido (la clienta lo verá en su pantalla)">🗑️</button></div>
                                 </div>
                               </div>
                             `}).join('')}
@@ -3382,12 +3437,118 @@
                       </div>
                     `;
                   })()}
+                  ${(() => {
+                    const _open = (state.supportTickets || []).filter(t => t && t.status !== 'Resuelto');
+                    const _selId = state.posSupportSelectedId || null;
+                    const _sel = _selId ? _open.find(t => t.id === _selId) : null;
+                    const _selIdx = _sel ? state.supportTickets.findIndex(x => x && x.id === _sel.id) : -1;
+                    const _lastMsg = (t) => { const _ms = Array.isArray(t.messages) ? t.messages : []; const _m = _ms.length ? _ms[_ms.length - 1] : null; return _m ? _m.text : (t.message || ''); };
+                    return `
+                    <div class="bg-zinc-900 border-2 border-pink-500/40 p-5 rounded-3xl shadow-lg space-y-3">
+                      <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+                        <div class="flex items-center gap-2.5">
+                          <span class="w-9 h-9 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center text-base font-black">💬</span>
+                          <div>
+                            <h3 class="font-black text-white text-sm uppercase tracking-wider">Soporte en vivo</h3>
+                            <p class="text-[10px] text-zinc-400">Chats abiertos de tus clientas • responde sin salir de Caja</p>
+                          </div>
+                        </div>
+                        <span class="px-3 py-1 rounded-full ${_open.length > 0 ? 'bg-pink-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-400'} text-xs font-black">${_open.length} abiertos</span>
+                      </div>
+                      ${_open.length === 0 ? `<div class="p-6 text-center text-zinc-500 text-xs bg-zinc-950 rounded-2xl border border-zinc-800 border-dashed">No hay chats abiertos. Cuando una clienta escriba, aparecerá aquí.</div>` : `
+                      <div class="space-y-2">
+                        ${_open.map(t => {
+                          const _lm = _lastMsg(t);
+                          return `<button type="button" onclick="state.posSupportSelectedId='${t.id}'; renderApp();" class="w-full text-left p-3 rounded-2xl border ${_selId === t.id ? 'border-pink-500 bg-pink-500/10' : 'border-zinc-800 bg-zinc-950 hover:border-pink-500/50'} transition">
+                            <div class="flex items-center justify-between gap-2">
+                              <span class="font-black text-white text-xs truncate">${t.customerName || 'Clienta'}</span>
+                              ${t.unreadByAdmin ? `<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black uppercase shrink-0">Nuevo</span>` : ''}
+                            </div>
+                            <p class="text-[11px] text-zinc-400 truncate mt-0.5">${_lm}</p>
+                          </button>`;
+                        }).join('')}
+                      </div>`}
+                      ${_sel ? `
+                      <div class="p-3.5 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2.5">
+                        <div class="flex items-center justify-between">
+                          <span class="font-black text-pink-400 text-xs">${_sel.customerName || 'Clienta'}${_sel.phone ? ` • 📱 ${_sel.phone}` : ''}</span>
+                          <button type="button" onclick="state.posSupportSelectedId=null; renderApp();" class="text-zinc-400 hover:text-white text-xs font-black">✕ Cerrar</button>
+                        </div>
+                        <div class="space-y-2 max-h-44 overflow-y-auto pr-1">
+                          ${(Array.isArray(_sel.messages) && _sel.messages.length > 0 ? _sel.messages : [{ sender: 'client', text: _sel.message, time: _sel.date || '' }]).map(m => `
+                            <div class="flex ${m.sender === 'admin' ? 'justify-end' : 'justify-start'}">
+                              <div class="max-w-[80%] px-3.5 py-2 rounded-2xl ${m.sender === 'admin' ? 'bg-pink-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-200'}">
+                                <p class="text-xs leading-relaxed">${m.text}</p>
+                                <span class="block text-[9px] opacity-70 mt-0.5 text-right">${m.sender === 'admin' ? 'Tú (RB Boutique)' : _sel.customerName} • ${m.time || ''}</span>
+                              </div>
+                            </div>
+                          `).join('')}
+                        </div>
+                        <div class="flex gap-2 pt-1">
+                          <input type="text" placeholder="Escribe tu respuesta para ${_sel.customerName}..." value="${(state.adminReplyDrafts[_sel.id] || '').replace(/"/g, '&quot;')}" oninput="state.adminReplyDrafts['${_sel.id}']=this.value;" class="flex-1 px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs focus:border-pink-500 outline-none" />
+                          <button onclick="sendAdminTicketReply(${_selIdx})" class="px-4 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black text-xs shrink-0">Enviar ➤</button>
+                        </div>
+                        <button onclick="confirmAction('¿Marcar conversación como resuelta? La clienta verá su chat cerrado en su pantalla.', () => { resolveSupportTicket(${_selIdx}); })" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl font-black text-[11px] transition">Resuelto ✓</button>
+                      </div>` : ''}
+                    </div>`;
+                  })()}
                   <div class="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl shadow-lg relative"><h3 class="font-black text-pink-400 text-xs mb-2.5 uppercase tracking-wider">🔍 Escáner / Buscador Rápido de Prendas</h3><div class="relative"><svg class="w-5 h-5 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><input type="text" value="${state.posSearch.replace(/"/g, '&quot;')}" oninput="state.posSearch=this.value; renderApp();" placeholder="Escribe el nombre o código SKU..." class="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-700 text-white text-sm focus:border-pink-500 outline-none shadow-inner" /></div>${state.posSearch.trim().length > 0 ? `<div class="absolute left-5 right-5 top-[92px] z-50 bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl max-h-64 overflow-y-auto divide-y divide-zinc-800 mt-1">${getFilteredPosProducts().length === 0 ? '<div class="p-4 text-center text-zinc-400 text-xs">No se encontraron prendas.</div>' : getFilteredPosProducts().map(p => `<div onclick="addPosItemFromSearch('${p.id}')" class="p-3 bg-zinc-900 hover:bg-zinc-800 flex items-center justify-between cursor-pointer transition"><div class="flex items-center gap-3"><img src="${p.image}" class="w-10 h-12 rounded-lg object-cover" /><div><p class="text-xs text-white font-bold">${p.name}</p><span class="text-[10px] text-pink-400 font-mono">${p.sku} • Stock: ${getTotalStock(p)}</span></div></div><span class="text-sm font-black text-emerald-400">$${p.price}</span></div>`).join('')}</div>` : ''}</div>
+
+                </div>
+
+                <div class="lg:col-span-6 space-y-5">
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-5 shadow-lg">
                     <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
                       <h3 class="font-black text-white text-lg flex items-center gap-2">Ticket de Cobro en Caja</h3>
                       ${state.activeWebOrderId ? `<div class="flex items-center gap-2"><span class="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-black">🔗 Cobrando ${state.activeWebOrderId}</span><button type="button" onclick="unlinkWebOrderFromPos()" class="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-rose-600 text-zinc-300 hover:text-white text-[10px] font-bold transition">✕ Desvincular</button></div>` : ''}
                     </div>
+                    ${(() => {
+                      if (!state.activeWebOrderId) return '';
+                      const _linked = (state.pendingWebOrders || []).find(o => o && o.id === state.activeWebOrderId) || (state.salesHistory || []).find(o => o && o.id === state.activeWebOrderId);
+                      if (!_linked) return '';
+                      const _cl = (state.vipClients || []).find(c => String(c.id) === String(_linked.customerId) || (_linked.email && String(c.email || '').toLowerCase() === String(_linked.email).toLowerCase()));
+                      const _phone = _linked.phone || (_cl && _cl.phone) || '';
+                      const _lvl = _cl ? getVipLevelInfo(_cl) : null;
+                      const _isDom = String(_linked.type || '').includes('Domicilio') || state.posDeliveryType === 'domicilio';
+                      const _addr = _linked.deliveryAddress || state.posDeliveryAddress || '';
+                      const _map = _linked.deliveryMapUrl || state.posDeliveryMapUrl || '';
+                      const _items = Array.isArray(_linked.itemsList) ? _linked.itemsList : [];
+                      return `
+                      <div class="p-4 rounded-2xl bg-zinc-950 border border-emerald-500/40 space-y-3 text-xs">
+                        <div class="flex items-center justify-between border-b border-zinc-800 pb-2">
+                          <span class="font-black text-emerald-300 uppercase text-[11px]">📋 Datos del pedido enlazado</span>
+                          <span class="font-mono font-black text-[11px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded">${_linked.id}</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <p class="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Cliente</p>
+                            <p class="font-black text-white text-sm">${_linked.customer || 'Cliente'}</p>
+                            <p class="text-zinc-400">📱 ${_phone || 'Sin teléfono registrado'}</p>
+                            ${_lvl ? `<p class="text-amber-300 font-bold">👑 Nivel ${_lvl.name} • ${_lvl.discount}% OFF</p>` : ''}
+                            ${_linked.email ? `<p class="text-zinc-500">✉️ ${_linked.email}</p>` : ''}
+                          </div>
+                          <div>
+                            <p class="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Entrega</p>
+                            ${_isDom ? `<p class="font-black text-sky-300">🛵 A Domicilio</p><p class="text-zinc-300 leading-relaxed">${_addr || 'Dirección no registrada'}</p>${_map ? `<a href="${_map}" target="_blank" rel="noopener" class="text-sky-400 font-bold underline">📍 Ver en Maps</a>` : ''}` : `<p class="font-black text-emerald-300">🏪 Recoger en Boutique</p>`}
+                          </div>
+                        </div>
+                        <div>
+                          <p class="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1.5">Productos del pedido</p>
+                          <div class="space-y-2">
+                            ${_items.length === 0 ? '<p class="text-zinc-500">Sin productos en el pedido.</p>' : _items.map(it => {
+                              const _p = (state.products || []).find(p => String(p.id) === String(it.productId));
+                              const _img = it.image || (_p && _p.image) || '';
+                              const _sub = (Number(it.price) || 0) * (Number(it.qty) || 0);
+                              return `<div class="flex items-center gap-2.5 bg-zinc-900 border border-zinc-800 rounded-xl p-2">
+                                ${_img ? `<img src="${_img}" class="w-10 h-12 rounded-lg object-cover shrink-0" />` : `<div class="w-10 h-12 rounded-lg bg-zinc-800 flex items-center justify-center text-lg shrink-0">📦</div>`}
+                                <div class="flex-1 min-w-0"><p class="font-bold text-white truncate">${it.name || 'Prenda'}</p><p class="text-zinc-400">Talla ${it.size || '—'} • x${Number(it.qty) || 0} • $${Number(it.price) || 0} c/u</p></div>
+                                <span class="font-black text-emerald-400 shrink-0">$${_sub} MXN</span>
+                              </div>`;
+                            }).join('')}
+                          </div>
+                        </div>
+                      </div>`;
+                    })()}
                     <div class="space-y-4">
                       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <select onchange="if(this.value){ state.posCustomerName = this.value; const cl = state.vipClients.find(c => (c.name + ' (VIP)') === this.value); if(cl && cl.address){ state.posDeliveryAddress = cl.address; state.posDeliveryMapUrl = cl.mapsUrl || ''; } renderApp(); }" class="w-full p-3 text-xs font-bold rounded-xl bg-zinc-950 border border-pink-500/40 text-pink-300 focus:border-pink-500 outline-none">
@@ -3427,9 +3588,6 @@
                       <button onclick="completePosSale()" class="w-full py-4 bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm rounded-2xl shadow-xl hover:scale-[1.01] transition flex items-center justify-center gap-2">💵 Cobrar y Generar Ticket (${posCalc.isCardTerminal ? 'Incluye 5% Terminal' : '$' + posCalc.finalChargeToday})</button>
                     </div>
                   </div>
-                </div>
-
-                <div class="lg:col-span-5 space-y-5">
                   <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-lg space-y-3.5">
                     <div class="flex items-center justify-between"><div><span class="text-[10px] font-black uppercase tracking-wider text-emerald-400">💰 Control de Efectivo Físico (${corteCalc.todayDateStr})</span><h3 class="font-black text-white text-sm">Gestor de Caja Chica del Día</h3></div><div class="flex gap-1.5"><button onclick="requestSupervisorAction('open_petty_opening')" class="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-200">🔒 Fondo Inicial</button><button onclick="requestSupervisorAction('open_petty_expense')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/20 text-[10px] font-black text-amber-300">🔒 - Retirar Gasto</button></div></div>
                     <div class="grid grid-cols-3 gap-2 text-center bg-zinc-950 p-3 rounded-2xl border border-zinc-800 text-xs"><div><span class="text-[10px] text-zinc-400 block">Fondo Inicial</span><span class="font-black text-white text-sm">$${corteCalc.openingCash}</span></div><div class="border-x border-zinc-800"><span class="text-[10px] text-zinc-400 block">+ Ventas Hoy</span><span class="font-black text-emerald-400 text-sm">+$${corteCalc.totalEfectivoVentas}</span></div><div><span class="text-[10px] text-zinc-400 block">- Gastos Hoy</span><span class="font-black text-rose-400 text-sm">-$${corteCalc.totalExpenses}</span></div></div>
