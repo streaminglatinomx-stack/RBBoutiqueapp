@@ -483,8 +483,15 @@
     // --- Seguimiento por folio: nodo publico por folio, sin exponer ventas ---
     function writeTrackingRecord(order, step) {
       if (!order || !order.id || !window.dbRef) return Promise.resolve();
-      const rec = { id: order.id, customer: order.customer || '', status: order.status || '', trackingStep: step, total: order.total || 0, shippingZoneName: order.shippingZoneName || '', shippingCost: order.shippingCost || 0, itemsList: order.itemsList || [], date: order.date || '', time: order.time || '' };
-      return window.dbRef.child('rb_boutique_tracking').child(String(order.id)).set(rec).catch(() => {});
+      // v2.4: MERGE con .update() en lugar de .set(). Antes el .set() reescribia
+      // TODO el registro con solo los campos que le pasaban, y al confirmar el
+      // pago se BORRABAN itemsList, fecha, hora y zona de envio. Ahora solo
+      // cambian paso/estado/total y se conserva lo demas. Solo se escriben los
+      // campos definidos: Firebase rechaza undefined en .update().
+      const rec = { id: order.id, customer: order.customer, status: order.status, trackingStep: step, total: order.total, shippingZoneName: order.shippingZoneName, shippingCost: order.shippingCost, itemsList: order.itemsList, date: order.date, time: order.time };
+      const patch = {};
+      Object.keys(rec).forEach((k) => { if (rec[k] !== undefined) patch[k] = rec[k]; });
+      return window.dbRef.child('rb_boutique_tracking').child(String(order.id)).update(patch).catch(() => {});
     }
     function loadTrackingRecord(folio) {
       if (!folio || !window.dbRef) return Promise.resolve(null);
@@ -5474,15 +5481,19 @@
         if (savedFolio) {
           const inPending = pendingList.find(o => o && o.id === savedFolio);
           const inSales = completedList.find(o => o && o.id === savedFolio && !String(o.status).includes('Devuelto'));
-          if (inPending) {
+          const inCloud = (state.cloudTrackedOrder && state.cloudTrackedOrder.id === savedFolio) ? state.cloudTrackedOrder : null;
+          if (inCloud) {
+            // v2.4: el dato en vivo manda. Antes ganaba la copia local del
+            // checkout (paso 1 congelado) y las confirmaciones del admin en
+            // Pedidos Web nunca se veian sin recargar.
+            trackedOrder = inCloud;
+            currentStep = Number(inCloud.trackingStep) || 1;
+          } else if (inPending) {
             trackedOrder = inPending;
             currentStep = Number(inPending.trackingStep) === 2 ? 2 : 1;
           } else if (inSales) {
             trackedOrder = inSales;
             currentStep = 3;
-          } else if (state.cloudTrackedOrder && state.cloudTrackedOrder.id === savedFolio) {
-            trackedOrder = state.cloudTrackedOrder;
-            currentStep = Number(state.cloudTrackedOrder.trackingStep) || 1;
           } else if (!state.trackingLoading) {
             state.trackingLoading = true;
             loadTrackingRecord(savedFolio).then((rec) => {
@@ -5723,11 +5734,18 @@
       window.__rbTrackingListenerOn = true;
       window.dbRef.child('rb_boutique_tracking').child(folio).on('value', function (snap) {
         const rec = snap ? snap.val() : null;
+        // v2.4: sin registro NO es cancelado, es "todavia no hay dato en vivo"
+        // (el pedido de una invitada no crea el registro porque escribir exige
+        // sesion). Antes el null se convertia en un Cancelado sintetico y, al
+        // abrir la lectura por folio en las reglas v2.2, la clienta veria
+        // "Tu pedido fue cancelado" apenas hacia el pedido. El Cancelado real
+        // llega como registro con status 'Cancelado ❌' / trackingStep 0.
+        if (!rec) return;
         const prev = JSON.stringify(state.cloudTrackedOrder || null);
-        const next = JSON.stringify(rec || { id: folio, status: 'Cancelado ❌', trackingStep: 0, total: 0 });
+        const next = JSON.stringify(rec);
         if (prev === next) return;
-        state.cloudTrackedOrder = rec || { id: folio, status: 'Cancelado ❌', trackingStep: 0, total: 0 };
-        const cancelled = !rec || /cancelado/i.test(String(rec.status || ''));
+        state.cloudTrackedOrder = rec;
+        const cancelled = /cancelado/i.test(String(rec.status || ''));
         if (cancelled && !state.trackingCancelled) {
           state.trackingCancelled = true;
           state.isBagOpen = true;
