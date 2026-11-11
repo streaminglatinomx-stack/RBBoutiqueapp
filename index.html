@@ -625,7 +625,7 @@
       adminReplyDrafts: {},
       
       authStatus: loadStored('rb_boutique_current_user', null) ? 'registered' : 'welcome', 
-      showGoogleFormInWelcome: false, showAuthRegisterModal: false,
+      showGoogleFormInWelcome: false, showAuthRegisterModal: false, registerModalReason: null,
       currentUser: loadStored('rb_boutique_current_user', null),
       regForm: { name: '', email: '', phone: '', referralCode: '', googleVerified: false },
 
@@ -1126,7 +1126,7 @@
           state.currentUser = existingClient;
           saveStored('rb_boutique_current_user', existingClient);
           state.authStatus = 'registered';
-          state.showAuthRegisterModal = false;
+          state.showAuthRegisterModal = false; state.registerModalReason = null;
           state.showGoogleFormInWelcome = false;
           loadOwnTickets();
           showToast(`¡Bienvenida de nuevo, ${existingClient.name}!`);
@@ -1194,7 +1194,7 @@
             state.currentUser = existingClient;
             saveStored('rb_boutique_current_user', existingClient);
             state.authStatus = 'registered';
-            state.showAuthRegisterModal = false;
+            state.showAuthRegisterModal = false; state.registerModalReason = null;
             state.showGoogleFormInWelcome = false;
             loadOwnTickets();
             showToast(`🎉 ¡Bienvenida de nuevo, ${existingClient.name}!`);
@@ -1217,7 +1217,7 @@
           state.currentUser = clientRecord;
           saveOwnVipRecord();
           saveStored('rb_boutique_current_user', clientRecord);
-          state.authStatus = 'registered'; state.showAuthRegisterModal = false; state.showGoogleFormInWelcome = false;
+          state.authStatus = 'registered'; state.showAuthRegisterModal = false; state.registerModalReason = null; state.showGoogleFormInWelcome = false;
           showToast(`🎉 ¡Bienvenida ${clientRecord.name}! Tu 10% OFF VIP ya está activo.`);
           renderApp();
         });
@@ -1823,7 +1823,13 @@
       renderApp();
     };
     window.addToCustomerBag = function () {
-      // v2: la compra como invitada NO se bloquea. El Club VIP solo se sugiere una vez y se puede cerrar.
+      // v2.5: MODELO DE NEGOCIO — la invitada SOLO MIRA. Para comprar hay que
+      // registrarse (Club VIP). Sin state.currentUser NO se agrega nada y se
+      // abre el popup de registro (con salida: X y "Seguir viendo"). La senal
+      // de registrada es state.currentUser, la misma que usan Favoritos, el
+      // chat de soporte y el checkout. En la app original el bloqueo existia
+      // pero sin salida; en la v2 se quito por error de diagnostico.
+      if (!state.currentUser) { state.registerModalReason = 'purchase'; state.showAuthRegisterModal = true; renderApp(); return; }
       const p = state.selectedProductModal; if (!p) return;
       const available = p.sizes[state.modalSize] || 0;
       if (available <= 0) { showToast(`Talla agotada`, 'error'); return; }
@@ -1834,8 +1840,6 @@
         existing.qty += 1;
       } else { state.customerCart.push({ cartId, productId: p.id, name: p.name, price: p.price, size: state.modalSize, color: state.modalColor, qty: 1, image: p.image }); }
       state.selectedProductModal = null; showToast(`🛍️ ¡Agregado a tu Carrito!`);
-      // v2: invitar al Club VIP una sola vez, sin bloquear la compra.
-      if (!state.currentUser && state.authStatus === 'guest' && !state._vipNudgeShown) { state._vipNudgeShown = true; state.showAuthRegisterModal = true; }
       saveCustomerCart();
       renderApp();
     };
@@ -1844,6 +1848,10 @@
 
     window.handleCustomerCheckout = function () {
       // v2: checkout opción 2 — todo en una pantalla, con UNA sola fuente de verdad de totales (getCustomerBagCalculations).
+      // v2.5: DEFENSA EN PROFUNDIDAD — sin registro no hay checkout (cubre un
+      // carrito guardado de una sesion anterior y cualquier ruta que llegue
+      // aqui). Se abre el mismo popup de registro, no el checkout.
+      if (!state.currentUser) { state.registerModalReason = 'purchase'; state.showAuthRegisterModal = true; renderApp(); return; }
       const bagItems = state.customerCart || [];
       if (bagItems.length === 0) { showToast('🛍️ Tu carrito está vacío'); return; }
       const calc = getCustomerBagCalculations();
@@ -5293,8 +5301,9 @@
                   <span class="text-[10px] font-black uppercase text-pink-400">Club VIP RB Boutique</span>
                   <h3 class="font-black text-base">Activa tu 10% OFF Permanente</h3>
                 </div>
-                <button onclick="state.showAuthRegisterModal=false; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button>
+                <button onclick="state.showAuthRegisterModal=false; state.registerModalReason=null; renderApp();" class="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center">✕</button>
               </div>
+              ${state.registerModalReason === 'purchase' ? `<p class="text-xs text-pink-300 leading-relaxed font-bold">🛍️ Para comprar, regístrate en el Club VIP y llévate tu 10% OFF permanente.</p>` : ''}
               ${!state.regForm.googleVerified ? `
                 <div class="space-y-3.5 text-center py-2">
                   <p class="text-xs text-zinc-300 leading-relaxed">Paso 1 de 2: Vincula tu cuenta oficial de Google para validar tu acceso y pasar al registro de WhatsApp:</p>
@@ -5324,6 +5333,7 @@
                   <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-xs shadow-lg">Finalizar y Activar 10% OFF VIP</button>
                 </form>
               `}
+              ${state.registerModalReason === 'purchase' ? `<button type="button" onclick="state.showAuthRegisterModal=false; state.registerModalReason=null; renderApp();" class="w-full py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-black text-xs transition">👀 Seguir viendo sin registrarme</button>` : ''}
             </div>
           </div>
         `;
