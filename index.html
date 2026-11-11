@@ -1897,18 +1897,18 @@
         window.saveOrderExtraMeta(folio, { receiptImage: receipt.dataUrl, receiptUploadedAt: Date.now(), paymentMethodChoice: payMethodLabel });
         state.pendingReceiptPhoto = null;
       }
-      state.whatsappCheckoutModal = { folio, calc, items: [...bagItems], payMethod, payMethodLabel };
-      state.lastPaymentBackup = state.whatsappCheckoutModal;
+      // v2.3: estilo Mercado Libre — al confirmar, la clienta va DIRECTO al
+      // seguimiento (drawer Mi Carrito con el folio activo, paso 1). Ya NO se
+      // abre el modal de confirmar pago ni se abre WhatsApp solo: el WhatsApp
+      // queda solo como link de ayuda debajo del botón. El respaldo de pago
+      // se guarda igual para el botón "Ver CLABE / Datos" del rastreador.
+      state.lastPaymentBackup = { folio, calc, items: [...bagItems], payMethod, payMethodLabel };
+      state.whatsappCheckoutModal = null;
       state.customerCart = [];
       saveCustomerCart();
       state.activeTrackingFolio = folio;
       try { window.localStorage.setItem('rb_boutique_active_folio', folio); } catch (e) {}
-      state.isBagOpen = false;
-      const waNum = String((state.storeConfig && state.storeConfig.whatsappNumber) || '').replace(/\D/g, '');
-      if (waNum) {
-        const msg = 'Hola RB Boutique 💕 ¡Hice un pedido!%0A%0AFolio: ' + folio + '%0A' + bagItems.map(it => '• ' + it.qty + 'x ' + it.name + ' (' + it.size + ') — $' + (Number(it.price) * Number(it.qty))).join('%0A') + '%0A%0ATotal: $' + calc.grandTotal + ' MXN' + (calc.isHomeDelivery ? '%0AAnticipo (50%): $' + totalToPayNow + ' MXN' : '') + '%0AMétodo: ' + payMethodLabel;
-        window.open('https://wa.me/' + waNum + '?text=' + msg, '_blank');
-      }
+      state.isBagOpen = true;
       showToast(`✅ Pedido ${folio} creado. Confirma tu pago para que lo surtamos.`);
       renderApp(); renderOverlays();
     };
@@ -3850,7 +3850,8 @@
               </div>
             </div>
             <div class="p-4 border-t border-zinc-800 bg-zinc-950">
-              <button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm shadow-[0_0_25px_rgba(236,72,153,0.4)]">💬 Enviar pedido por WhatsApp</button>
+              <button onclick="handleCustomerCheckout()" class="w-full py-4 rounded-xl bg-gradient-to-r from-pink-600 to-rose-500 text-white font-black text-sm shadow-[0_0_25px_rgba(236,72,153,0.4)]">✅ Confirmar pedido</button>
+              ${(() => { const n = String((state.storeConfig && state.storeConfig.whatsappNumber) || '').replace(/\D/g, ''); return n ? `<a href="https://wa.me/${n}?text=${encodeURIComponent('Hola RB Boutique 💕 Tengo una duda con mi pedido.')}" target="_blank" rel="noopener" class="block text-center text-[11px] font-bold text-emerald-400 hover:text-emerald-300 mt-2.5">💬 ¿Dudas? Escríbenos por WhatsApp</a>` : ''; })()}
               <p class="text-center text-[10px] text-zinc-500 mt-2">${calc.isHomeDelivery ? 'Anticipo del 50% para envío • El resto se paga a la entrega' : 'Pagas al recoger en boutique'}</p>
             </div>`}
           </div>
@@ -5563,20 +5564,25 @@
               </div>
 
               <div class="space-y-1.5 pt-1">
-                <div class="w-full h-3 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800 p-0.5">
-                  <div class="h-full rounded-full transition-all duration-700 mp-bar-anim" style="width: ${progressWidth}; background-image: linear-gradient(90deg, ${stepColor}, #ec4899, ${stepColor});"></div>
+                <div class="relative">
+                  <div class="w-full h-3 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800 p-0.5">
+                    <div class="h-full rounded-full transition-all duration-700 rb-vip-track-bar" style="width: ${progressWidth}; background-image: linear-gradient(90deg, #ec4899, #f472b6, #f59e0b, #fbbf24, #ec4899);"></div>
+                  </div>
+                  <span class="rb-vip-sparkle" style="left: 6%; animation-delay: 0s;">✨</span>
+                  <span class="rb-vip-sparkle" style="left: 47%; animation-delay: .6s;">✨</span>
+                  <span class="rb-vip-sparkle" style="right: 7%; animation-delay: 1.2s;">✨</span>
                 </div>
-                <div class="flex justify-between text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                  <span class="${currentStep >= 1 ? 'text-sky-400' : ''}">1. Pago</span>
-                  <span class="${currentStep >= 2 ? 'text-amber-400' : ''}">2. Surtiendo</span>
-                  <span class="${currentStep >= 3 ? 'text-emerald-400' : ''}">3. Listo Entrega</span>
+                <div class="flex justify-between text-[10px] font-serif uppercase tracking-[0.18em] text-zinc-500">
+                  <span class="${currentStep >= 1 ? 'text-pink-300' : ''}">1. Pago</span>
+                  <span class="${currentStep >= 2 ? 'text-amber-300' : ''}">2. Surtiendo</span>
+                  <span class="${currentStep >= 3 ? 'text-emerald-300' : ''}">3. Listo Entrega</span>
                 </div>
               </div>
 
               <div class="p-3.5 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-2.5 text-xs">
                 <div class="flex items-center justify-between gap-2">
                   <div class="flex items-center gap-2.5">
-                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${currentStep > 1 ? 'bg-emerald-500 text-black' : 'bg-sky-500 text-white animate-pulse'}">${currentStep > 1 ? '✓' : '1'}</span>
+                    <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[11px] font-serif shrink-0 ${currentStep > 1 ? 'border-emerald-400/70 text-emerald-400 bg-emerald-400/10' : 'border-pink-400/80 text-pink-200 bg-pink-500/10'}">${currentStep > 1 ? '✓' : '1'}</span>
                     <div>
                       <p class="font-black text-white">Confirmando tu pago</p>
                       <p class="text-[10px] text-zinc-400">${currentStep === 1 ? (hasReceipt ? 'Foto de ticket recibida en sistema ✅' : 'Sube la foto de tu ticket abajo') : 'Pago verificado ✅'}</p>
@@ -5590,12 +5596,12 @@
                 </div>
 
                 <div class="flex items-center gap-2.5">
-                  <span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${currentStep > 2 ? 'bg-emerald-500 text-black' : currentStep === 2 ? 'bg-amber-500 text-black animate-bounce' : 'bg-zinc-800 text-zinc-500'}">${currentStep > 2 ? '✓' : '2'}</span>
+                  <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[11px] font-serif shrink-0 ${currentStep > 2 ? 'border-emerald-400/70 text-emerald-400 bg-emerald-400/10' : currentStep === 2 ? 'border-amber-400/80 text-amber-200 bg-amber-500/10' : 'border-zinc-700 text-zinc-500'}">${currentStep > 2 ? '✓' : '2'}</span>
                   <div><p class="font-black ${currentStep >= 2 ? 'text-white' : 'text-zinc-500'}">Tu pedido se está surtiendo</p><p class="text-[10px] text-zinc-400">${currentStep === 2 ? 'Preparando tus prendas en boutique 📦' : currentStep > 2 ? 'Pedido surtido ✅' : 'Se activará al verificar tu pago'}</p></div>
                 </div>
 
                 <div class="flex items-center gap-2.5">
-                  <span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${currentStep === 3 ? 'bg-emerald-500 text-black animate-pulse' : 'bg-zinc-800 text-zinc-500'}">${currentStep === 3 ? '✓' : '3'}</span>
+                  <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[11px] font-serif shrink-0 ${currentStep === 3 ? 'border-emerald-400/70 text-emerald-400 bg-emerald-400/10' : 'border-zinc-700 text-zinc-500'}">${currentStep === 3 ? '✓' : '3'}</span>
                   <div><p class="font-black ${currentStep === 3 ? 'text-emerald-400' : 'text-zinc-500'}">¡Tu pedido está listo para entrega!</p><p class="text-[10px] text-zinc-400">${currentStep === 3 ? '¡Confirmado en caja y listo! 🎉' : 'Se confirmará al terminar el surtido en caja'}</p></div>
                 </div>
               </div>
@@ -5647,6 +5653,10 @@
                 @keyframes mpBarFlow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
                 .mp-pulse { animation: mpPulseRing 2s infinite; }
                 .mp-bar-anim { background-size: 200% 100%; animation: mpBarFlow 2.2s linear infinite; }
+                @keyframes rbVipTrackShimmer { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+                @keyframes rbVipTwinkle { 0%, 100% { opacity: .3; transform: scale(.75) rotate(-8deg); } 50% { opacity: 1; transform: scale(1.1) rotate(12deg); } }
+                .rb-vip-track-bar { background-size: 200% 100%; animation: rbVipTrackShimmer 2.4s linear infinite; box-shadow: 0 0 12px rgba(236,72,153,.55), 0 0 22px rgba(245,158,11,.30); }
+                .rb-vip-sparkle { position: absolute; top: -7px; font-size: 11px; line-height: 1; pointer-events: none; animation: rbVipTwinkle 1.8s ease-in-out infinite; }
               </style>
               <div class="fixed inset-0 z-[85] bg-black/80 backdrop-blur-sm flex justify-end no-print">
                 <div class="bg-zinc-950 border-l border-zinc-800 w-full max-w-md h-full flex flex-col justify-between text-white shadow-2xl animate-fade overflow-hidden">
