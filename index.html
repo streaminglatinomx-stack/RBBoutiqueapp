@@ -168,6 +168,21 @@
     }
 
     function loadStored(key, fallback) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
+    const CUSTOMER_CART_KEY = 'rb_boutique_customer_cart';
+    // v2.1: el carrito vive en el teléfono de la clienta y sobrevive a la recarga.
+    // Solo se guarda en localStorage, jamás en Firebase (la clave está en LOCAL_ONLY_KEYS).
+    function saveCustomerCart() {
+      try { window.localStorage.setItem(CUSTOMER_CART_KEY, JSON.stringify(state.customerCart || [])); } catch (e) {}
+    }
+    function loadCustomerCart() {
+      try {
+        const raw = window.localStorage.getItem(CUSTOMER_CART_KEY);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return [];
+        return arr.filter(it => it && typeof it === 'object' && it.cartId && it.productId && Number(it.qty) > 0);
+      } catch (e) { return []; }
+    }
     
     // RB v1-seguridad: claves que SOLO la administradora puede escribir en Firebase.
     const ADMIN_ONLY_KEYS = ['rb_boutique_vip_clients', 'rb_boutique_sales', 'rb_boutique_tickets', 'rb_boutique_pending_orders', 'rb_boutique_petty_cash', 'rb_boutique_costs', 'rb_boutique_private_config', 'rb_boutique_order_meta'];
@@ -198,7 +213,7 @@
     // Claves de un solo dispositivo: jamas se escriben en Firebase (antes, el
     // usuario actual y la wishlist se subian a un nodo compartido y el ultimo
     // que entraba sobreescribia al anterior).
-    const LOCAL_ONLY_KEYS = ['rb_boutique_current_user', 'rb_boutique_wishlist', 'rb_boutique_active_folio', 'rb_boutique_last_receipt', 'rb_boutique_orders_meta'];
+    const LOCAL_ONLY_KEYS = ['rb_boutique_current_user', 'rb_boutique_wishlist', 'rb_boutique_active_folio', 'rb_boutique_last_receipt', 'rb_boutique_orders_meta', 'rb_boutique_customer_cart'];
     function saveStored(key, data) {
       // v1-seguridad: lo privado no queda guardado en el navegador de nadie.
       if (!NO_LOCAL_KEYS.includes(key)) { try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (e) {} }
@@ -633,7 +648,7 @@
       pettyCashModal: null,
 
       wishlist: loadStored('rb_boutique_wishlist', []),
-      customerCart: [], isBagOpen: false, customerDeliveryType: 'pickup', customerDeliveryAddress: '', customerDeliveryMapUrl: '',
+      customerCart: loadCustomerCart(), isBagOpen: false, customerDeliveryType: 'pickup', customerDeliveryAddress: '', customerDeliveryMapUrl: '',
       showGiftCelebration: false,
       wheelSpinning: false,
       wheelRotation: 0,
@@ -1211,6 +1226,7 @@
         state.regForm = { name: '', email: '', phone: '', referralCode: '', googleVerified: false };
         window.localStorage.removeItem('rb_boutique_current_user');
         window.localStorage.removeItem('rb_boutique_wishlist');
+        window.localStorage.removeItem('rb_boutique_customer_cart');
         showToast('Sesión cerrada correctamente'); renderApp();
     };
 
@@ -1813,6 +1829,7 @@
       state.selectedProductModal = null; showToast(`🛍️ ¡Agregado a tu Carrito!`);
       // v2: invitar al Club VIP una sola vez, sin bloquear la compra.
       if (!state.currentUser && state.authStatus === 'guest' && !state._vipNudgeShown) { state._vipNudgeShown = true; state.showAuthRegisterModal = true; }
+      saveCustomerCart();
       renderApp();
     };
 
@@ -1883,6 +1900,7 @@
       state.whatsappCheckoutModal = { folio, calc, items: [...bagItems], payMethod, payMethodLabel };
       state.lastPaymentBackup = state.whatsappCheckoutModal;
       state.customerCart = [];
+      saveCustomerCart();
       state.activeTrackingFolio = folio;
       try { window.localStorage.setItem('rb_boutique_active_folio', folio); } catch (e) {}
       state.isBagOpen = false;
@@ -3748,10 +3766,10 @@
                     <p class="font-black text-white text-xs truncate">${it.name}</p>
                     <p class="text-[11px] text-zinc-400">Talla ${it.size || 'Única'} • $${Number(it.price)} c/u</p>
                     <div class="flex items-center gap-2 mt-1">
-                      <button onclick="const e=state.customerCart.find(i=>i.cartId==='${it.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${it.cartId}'); renderApp();" class="w-6 h-6 rounded-lg bg-zinc-800 text-white font-black text-xs">−</button>
+                      <button onclick="const e=state.customerCart.find(i=>i.cartId==='${it.cartId}'); if(e.qty>1) e.qty--; else state.customerCart=state.customerCart.filter(i=>i.cartId!=='${it.cartId}'); saveCustomerCart(); renderApp();" class="w-6 h-6 rounded-lg bg-zinc-800 text-white font-black text-xs">−</button>
                       <span class="font-black text-white text-xs w-5 text-center">${Number(it.qty) || 1}</span>
-                      <button onclick="const e=state.customerCart.find(i=>i.cartId==='${it.cartId}'); const p=state.products.find(x=>x.id===e.productId); const max=(p && p.sizes) ? Number(p.sizes[e.size]) : 999; if(e.qty+1<=max) e.qty++; else showToast('Stock máximo', 'error'); renderApp();" class="w-6 h-6 rounded-lg bg-zinc-800 text-white font-black text-xs">+</button>
-                      <button onclick="state.customerCart=state.customerCart.filter(i=>i.cartId!=='${it.cartId}'); renderApp();" class="ml-2 text-rose-400 font-black text-[11px]">Quitar</button>
+                      <button onclick="const e=state.customerCart.find(i=>i.cartId==='${it.cartId}'); const p=state.products.find(x=>x.id===e.productId); const max=(p && p.sizes) ? Number(p.sizes[e.size]) : 999; if(e.qty+1<=max) e.qty++; else showToast('Stock máximo', 'error'); saveCustomerCart(); renderApp();" class="w-6 h-6 rounded-lg bg-zinc-800 text-white font-black text-xs">+</button>
+                      <button onclick="state.customerCart=state.customerCart.filter(i=>i.cartId!=='${it.cartId}'); saveCustomerCart(); renderApp();" class="ml-2 text-rose-400 font-black text-[11px]">Quitar</button>
                     </div>
                   </div>
                   <span class="font-black text-emerald-400 text-sm shrink-0">$${Number(it.price) * (Number(it.qty) || 1)}</span>
