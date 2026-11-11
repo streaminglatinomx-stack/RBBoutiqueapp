@@ -1988,7 +1988,7 @@
       if (existing) {
         if (existing.qty + 1 > p.sizes[firstAvail]) { showToast('Stock máximo alcanzado', 'error'); return; }
         existing.qty += 1;
-      } else { state.posCart.push({ cartId, productId: p.id, sku: p.sku, name: p.name, price: p.price, size: firstAvail, qty: 1 }); }
+      } else { state.posCart.push({ cartId, productId: p.id, sku: p.sku, name: p.name, price: p.price, size: firstAvail, qty: 1, image: p.image }); }
       state.posSearch = ''; showToast(`Agregado: ${p.name} (${firstAvail})`); renderApp();
     };
 
@@ -2010,7 +2010,8 @@
         name: it.name,
         price: Math.round(Number(it.price || 0) * discountRatio),
         size: it.size,
-        qty: Number(it.qty) || 1
+        qty: Number(it.qty) || 1,
+        image: it.image || ((state.products || []).find(p => String(p.id) === String(it.productId)) || {}).image || ''
       }));
       state.posDeliveryType = isDelivery ? 'domicilio' : 'mostrador';
       state.posPaymentStatus = String(order.type || '').includes('Anticipo') ? 'anticipo' : '100';
@@ -3254,7 +3255,7 @@
                         if (existing.qty + 1 > Number(sizesObj[firstAvail])) { showToast('Stock máximo alcanzado', 'error'); return; }
                         existing.qty += 1;
                       } else {
-                        state.posCart.push({ cartId: cartId, productId: p.id, sku: p.sku, name: p.name, price: Number(p.price) || 0, size: firstAvail, qty: 1 });
+                        state.posCart.push({ cartId: cartId, productId: p.id, sku: p.sku, name: p.name, price: Number(p.price) || 0, size: firstAvail, qty: 1, image: p.image });
                       }
                       state.posSearch = '';
                       showToast('Agregado a Caja: ' + p.name + ' (' + firstAvail + ')');
@@ -3298,7 +3299,8 @@
                         name: it.name,
                         price: Math.round(Number(it.price || 0) * discountRatio),
                         size: it.size,
-                        qty: Number(it.qty) || 1
+                        qty: Number(it.qty) || 1,
+                        image: it.image || ((state.products || []).find(p => String(p.id) === String(it.productId)) || {}).image || ''
                       }));
                       state.posDeliveryType = isDelivery ? 'domicilio' : 'mostrador';
                       state.posPaymentStatus = String(order.type || '').includes('Anticipo') ? 'anticipo' : '100';
@@ -3400,7 +3402,8 @@
                               return `
                               <div class="p-4 rounded-2xl bg-zinc-950 border ${state.activeWebOrderId === ord.id ? 'border-emerald-500 ring-1 ring-emerald-500/40' : isSurtiendo ? 'border-amber-500/50' : 'border-zinc-800'} space-y-3">
                                 <div class="flex flex-wrap items-start justify-between gap-2">
-                                  <div class="space-y-1">
+                                  ${(() => { const _fi = (ord.itemsList || [])[0]; if (!_fi) return ''; const _fp = (state.products || []).find(p => String(p.id) === String(_fi.productId)); const _fimg = _fi.image || (_fp && _fp.image) || ''; return _fimg ? `<img src="${_fimg}" class="w-20 h-24 rounded-xl object-cover shrink-0 border border-zinc-700" />` : `<div class="w-20 h-24 rounded-xl bg-zinc-800 flex items-center justify-center text-2xl shrink-0">📦</div>`; })()}
+                                  <div class="space-y-1 flex-1 min-w-0">
                                     <div class="flex items-center gap-2 flex-wrap">
                                       <span class="font-mono font-black text-pink-400 bg-pink-500/10 px-2 py-0.5 rounded border border-pink-500/20">${ord.id}</span>
                                       <span class="font-black text-white text-sm">${ord.customer}</span>
