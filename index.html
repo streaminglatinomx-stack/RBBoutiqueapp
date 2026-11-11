@@ -5740,9 +5740,13 @@
     function renderApp() {
       const root = document.getElementById('app'); if (!root) return;
       // v1-seguridad: los datos de pago solo se leen cuando hay un cobro en pantalla.
-      if (state.whatsappCheckoutModal && !state.privateConfigLoaded && !state.privateConfigLoading && window.dbRef) {
+      // v2.2: el checkout (drawer Mi Carrito, state.isBagOpen) tambien es un cobro en
+      // pantalla: el guard solo disparaba con el modal post-pedido y el carrito nunca
+      // cargaba los datos bancarios. El drawer vive en #app, asi que el .then()
+      // re-renderiza la app ADEMAS del overlay.
+      if ((state.whatsappCheckoutModal || state.isBagOpen) && !state.privateConfigLoaded && !state.privateConfigLoading && window.dbRef) {
         state.privateConfigLoading = true;
-        ensurePaymentConfigLoaded().then(() => { state.privateConfigLoading = false; renderOverlays(); });
+        ensurePaymentConfigLoaded().then(() => { state.privateConfigLoading = false; renderApp(); renderOverlays(); });
       }
       const activeEl = document.activeElement; const actTag = activeEl ? activeEl.tagName : null; const actPh = activeEl ? activeEl.getAttribute('placeholder') : null; const cStart = activeEl && typeof activeEl.selectionStart === 'number' ? activeEl.selectionStart : null;
       root.innerHTML = (state.appMode === 'storefront' ? renderStorefrontHTML() : renderBackofficeHTML()) + renderModalsHTML();
